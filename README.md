@@ -217,11 +217,21 @@ glab auth status         # Verify
 | Tier | Price | What you get |
 |------|-------|-------------|
 | **Free** | $0 | 14 skills, 10 rules, 4 agents — essential governance |
-| **Pro** | $79 | 67 skills, 51 rules, 11 agents, full pipeline, workflow docs |
+| **Pro** | $79 | 67 skills, 51 rules, 11 agents, full pipeline, workflow docs, 22 design patterns |
 | **Team** | $199 | Pro + 1 year updates + priority GitHub Issues support |
 | **Enterprise** | $499/yr | Team + 2h setup consultancy + SLA |
 
-**[Get AgentKit Pro →](https://your-lemonsqueezy-link.com)**
+### Add-ons (work with any tier)
+
+| Add-on | Price | What you get |
+|--------|-------|-------------|
+| **CI/CD Pipeline Pack** | $29 | GitLab CI templates + GitHub Actions + AI changelog + version bump |
+| **Deploy Scripts Pack** | $29 | Docker Swarm deploy, rollback, backup/restore, healthcheck |
+| **Full Bundle** | $149 | Pro + CI/CD + Deploy (save $38) |
+
+**[Get AgentKit Pro → $79](https://agentkit.lemonsqueezy.com/buy/pro)**
+
+**[Get Full Bundle → $149](https://agentkit.lemonsqueezy.com/buy/bundle)**
 
 ## Why AgentKit?
 

@@ -240,8 +240,8 @@ print_summary() {
 
   if [[ "$TIER" == "free" ]]; then
     echo -e "  ${YELLOW}Upgrade to Pro for 67 skills, 51 rules, 11 agents,${NC}"
-    echo -e "  ${YELLOW}pipeline scripts, and governance workflow docs.${NC}"
-    echo -e "  ${YELLOW}→ https://github.com/Joaonic/agentkit${NC}"
+    echo -e "  ${YELLOW}pipeline scripts, design patterns, and CI/CD add-ons.${NC}"
+    echo -e "  ${YELLOW}→ https://agentkit.lemonsqueezy.com${NC}"
   fi
 
   echo ""

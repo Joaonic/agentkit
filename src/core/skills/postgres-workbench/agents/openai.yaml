@@ -1,8 +1,0 @@
-interface:
-  display_name: "PostgreSQL Workbench"
-  short_description: "PostgreSQL modeling, tuning, and safe operations."
-  brand_color: "#336791"
-  default_prompt: "Use $postgres-workbench to review this PostgreSQL schema or query: integrity, index strategy, EXPLAIN plan, locking risks, and a safe migration path with rollback."
-
-dependencies:
-  tools: []

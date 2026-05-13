@@ -1,9 +1,0 @@
-# AgentKit Pro Tier — Agents (ALL agents)
-# Everything in free tier PLUS these additional agents
-ai-orchestrator.md
-arch.md
-code-audit.md
-docs.md
-docs-audit.md
-project-manager.md
-ux-reviewer.md
