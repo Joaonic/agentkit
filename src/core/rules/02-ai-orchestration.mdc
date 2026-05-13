@@ -1,0 +1,14 @@
+---
+description: Aplicar quando for mexer em modelos de IA dos agents do PRODUTO, somente do PRODUTO.
+alwaysApply: false
+---
+# AI Orchestration
+
+- **Greeter** — primeira resposta **sempre imediata** (< 1s). Template ou modelo rápido; sem tool calls.
+- **Router** — classifica intent; decide próximo estado; Structured Outputs; sem parallel tool calls.
+- **Executor** — assíncrono via BullMQ; programmatic retrieval primeiro; LLM só para compor mensagem final.
+- **Budgets** — limitar tool calls por request; timeout em chamadas LLM.
+- **Guardrails** — nunca mencionar "Shopify", "customerId", IDs técnicos, keywords internas em respostas ao usuário.
+- **Safety Filter** — determinístico pós-LLM; forbidden tokens; fallback seguro.
+
+**Referencias:** `POLICIES.md` (guardrails, forbidden tokens); `docs/reference/architecture/ai-models.md` (modelos); `@tool-call-policy.mdc`, `AGENTS.md`.

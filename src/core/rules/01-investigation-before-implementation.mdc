@@ -1,0 +1,18 @@
+---
+description: Investigation is mandatory before implementation for non-trivial changes
+globs: "**/*"
+alwaysApply: true
+---
+
+# Investigation First
+
+Before implementation:
+- confirm objective and non-objectives
+- identify impacted modules/contracts/boundaries
+- inspect existing implementations to avoid duplication
+- define acceptance criteria and validation harness
+- map dependencies and blockers
+
+Blocking policy:
+- no coding with ambiguous scope
+- no coding without validation strategy

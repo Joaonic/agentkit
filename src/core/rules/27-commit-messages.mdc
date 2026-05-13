@@ -1,0 +1,34 @@
+---
+description: Mensagens de commit semânticas com referência obrigatória à issue GitLab quando houver tarefa rastreada
+alwaysApply: true
+---
+
+# Commits — Semântico + Issue
+
+## Regra obrigatória
+
+Quando o trabalho estiver ligado a uma **issue GitLab** (fluxo normativo: planos, `implement-plan`, tarefas com issue criada), **cada mensagem de commit** deve:
+
+1. Usar **prefixo semântico**: `feat`, `fix`, `chore`, `docs`, `test`, `perf`, `refactor`, `ci`.
+2. Incluir o **número da issue** no formato `tipo(#NNN): descrição` quando houver issue rastreada.
+
+### Exemplos
+
+| Correto | Incorreto |
+|--------|-----------|
+| `feat(#142): add tenant scoped audit log` | `feat: add tenant scoped audit log` |
+| `fix(#88): guard tenant scope on event listener` | `fix(api): guard tenant scope (#88)` |
+| `test(#201): cover auth session use case` | `test(api): cover auth session mapper` |
+
+### Sem issue rastreada
+
+- Usar apenas prefixo semântico sem número: `chore: bump Spring Boot to 3.4`.
+- Preferir criar issue antes de implementar para manter rastreabilidade.
+
+### Várias issues
+
+- Preferir uma issue principal no assunto; demais no corpo do commit se necessário.
+
+## Exceções
+
+- Commits automáticos de release, merge commits e ajustes pontuais sem issue rastreada (evitar; preferir issue antes).

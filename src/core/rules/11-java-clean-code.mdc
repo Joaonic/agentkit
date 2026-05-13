@@ -1,0 +1,32 @@
+---
+description: Clean Code and SOLID guardrails for Java modules
+globs: "**/*.java"
+alwaysApply: false
+---
+
+# Java Clean Code
+
+SOLID baseline:
+- Single Responsibility: one clear reason to change per class
+- Open/Closed: extend behavior without invasive edits
+- Liskov Substitution: subtype contracts preserve behavior assumptions
+- Interface Segregation: small focused contracts
+- Dependency Inversion: high-level behavior depends on abstractions
+
+Operational guardrails:
+- avoid duplicated business logic across use-cases/services
+- avoid long `if/else` chains when strategy/polymorphism fits better
+- keep methods short and intention-revealing
+- keep side effects explicit and localized
+- use comments only for non-obvious design decisions
+
+Import discipline — ZERO FQN tolerance:
+- **NUNCA** usar Fully Qualified Names (FQN) inline no código (ex.: `java.util.List<String>`, `org.springframework.stereotype.Service`). **Sempre** importar o tipo no bloco de imports e usar o nome simples no corpo da classe.
+- Ao encontrar qualquer FQN inline durante trabalho em qualquer ficheiro (mesmo fora do escopo da task), **corrigir imediatamente**: adicionar o import e substituir pelo nome simples.
+- Wildcard imports (`import java.util.*`) são proibidos — importar cada tipo individualmente.
+- Imports não usados devem ser removidos (limpeza de passagem — ver rule `25-clean-code.mdc`).
+
+Design checks:
+- DRY without over-abstraction
+- KISS over speculative generic frameworks
+- YAGNI for non-required extensions

@@ -1,0 +1,64 @@
+---
+description: NestJS backend coding standards, DI, modules, and patterns
+globs: apps/api/**/*.ts
+alwaysApply: false
+---
+
+# Backend NestJS Standards
+
+## NestJS 11+
+
+- Node 24 LTS
+- Constructor injection only (não usar `@Inject()` em propriedades para injeção de serviços)
+- Módulos por feature (ex: `ConversationModule`, `WhatsAppModule`, `ShopifyModule`)
+- Providers registrados no módulo apropriado; exportar quando reutilizado
+
+## Imports e Organização
+
+- **Imports no topo do arquivo.** Nunca fully qualified no corpo do código.
+- Ordem: Node built-ins, libs externas, @repo/*, caminhos relativos.
+- Evitar `import * as` exceto quando necessário; preferir named imports.
+
+## Commands, Queries, Results
+
+- **Commands:** Objetos imutáveis para operações que mudam estado. Nomenclatura imperativa: `SendWhatsAppMessageCommand`, `ProcessInboundWebhookCommand`.
+- **Queries:** Objetos imutáveis para leitura. Nomenclatura descritiva: `GetConversationByPhoneQuery`, `FindProductsByCatalogQuery`.
+- **Results:** Retorno de use cases. Imutáveis. Evitar `Request`/`Response` no nome quando for modelo de aplicação (não transporte).
+
+## Boundary Return Values (CRÍTICO)
+
+Ver `@hexagonal-backend.mdc` — repositórios e adapters NUNCA retornam `null`; coleções retornam `[]`; fail fast na borda.
+
+## OpenAPI / Swagger (Obrigatório)
+
+- **Todos os controllers e DTOs** expostos via API REST devem ter decorators Swagger para spec completa.
+- **Controllers:** `@ApiTags('recurso')`, `@ApiOperation({ summary })`, `@ApiResponse()`, `@ApiBearerAuth()` (se protegido)
+- **DTOs:** `@ApiProperty()` ou `@ApiPropertyOptional()` em cada campo
+- **Sem decorators** = spec incompleta = Orval gera tipos incorretos
+- Spec em `/openapi.json`; docs em `/docs` (Scalar). Ver skill `openapi-orval-nextauth`
+
+## Padrões NestJS
+
+- **Pipes:** Para validação (class-validator) e transformação
+- **Guards:** Para autenticação/autorização (Shopify session token, Bearer JWT)
+- **Interceptors:** Para logging, transformação de resposta, timeout
+- **Filters:** Para tratamento global de exceções
+- **BullMQ:** Processors como providers; injeção de `@InjectQueue`, `Queue`
+
+## File Naming
+
+- `*.controller.ts` — Controllers HTTP/webhook
+- `*.service.ts` — Use cases / aplicação
+- `*.gateway.ts` — WebSockets (se houver)
+- `*.processor.ts` — BullMQ job processors
+- `*.adapter.ts` — Implementações de ports
+- `*.module.ts` — Módulos NestJS
+- `*.entity.ts` — Entidades (se usar TypeORM) ou referência a Prisma
+
+## Anti-Patterns
+
+- Business logic em controllers
+- Controllers injetando adapters diretamente (injetar use case / port)
+- Retornar entidades de domínio diretamente no controller (usar DTO/Result)
+- `any` sem justificativa
+- Field injection

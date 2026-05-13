@@ -1,0 +1,18 @@
+---
+description: Feature-Sliced Design, import rules, camadas, conventions.
+globs: apps/web/src/**/*
+alwaysApply: true
+---
+
+# Frontend — FSD
+
+- **Camadas** — shared → entities → features → widgets → pages → app.
+- **Imports** — apenas para camadas superiores; shared sem dependência de features.
+- **Conventions** — Server Components por padrão; Client quando necessário (interatividade, hooks).
+- **Next.js 16** — App Router; sem Storybook (incompatível).
+- **Shopify embedded** — App Bridge, session token, token exchange.
+- **API calls** — Somente client Orval (`shared/api/generated.ts`). Proibido wrappers manuais para endpoints da API própria. Ver `openapi-orval-nextauth` skill e `docs/reference/architecture/tech-constraints.md`.
+- **UI / design** — Skill `frontend-design` **obrigatória** para componentes, páginas e layouts. Interfaces distintivas, sem AI slop.
+- **Pages finas** — compor widgets/features; evitar JSX volumoso. Comandos: `/new-widget`, `/new-feature`, `/new-ui-component`.
+
+Ver `@feature-sliced-frontend.mdc`, `@react-nextjs.mdc`, Skill `frontend-design`.

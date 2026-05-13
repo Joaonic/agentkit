@@ -1,0 +1,16 @@
+---
+description: Plans require tracked, agent-ready issues before execution/closure
+globs: "**/*.plan.md"
+alwaysApply: false
+---
+
+# Plans Require Tracked Issues
+
+Execution plans must map to issues with:
+- explicit scope and out-of-scope
+- testable acceptance criteria
+- validation harness commands
+- dependencies and milestone context
+- QA package
+
+Plan steps must not be treated as complete if issue contract is incomplete.

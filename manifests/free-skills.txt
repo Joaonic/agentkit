@@ -1,0 +1,16 @@
+# AgentKit Free Tier — Skills
+# These skills are included in the free (open-source) package
+add-skill
+bootstrap
+bootstrap-governance
+implement-plan
+lint-fix
+new-adr
+new-plan
+posttask
+posttask-workspace-lint
+qa-issue-spec
+review-open-pr
+run-build
+run-tests
+tdd-workflow

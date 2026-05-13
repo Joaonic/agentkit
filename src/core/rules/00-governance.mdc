@@ -1,0 +1,18 @@
+---
+description: Governance baseline for skills-only workflow and canonical cursor documentation
+globs: "**/*"
+alwaysApply: true
+---
+
+# Governance Baseline
+
+Mandatory:
+- Canonical governance lives in docs/governance/cursor.
+- Skills and agents only. Do not create .cursor/commands.
+- Do not use slash-style invocation notation in docs, rules, skills, or agents.
+- Keep plan files in .cursor/plans and keep status synchronized with real progress.
+- Use AGENTS.md as operational index for roles and quality gates.
+
+VCS policy:
+- Default is GitLab-first with glab.
+- Exception: web/your-github-project uses GitHub with gh.

@@ -1,0 +1,15 @@
+---
+description: Use shell file operations for moves/copies instead of manual content recreation
+globs: "**/*"
+alwaysApply: true
+---
+
+# File Operations
+
+Mandatory:
+- use `mv` for moves/renames
+- use `cp` for copies
+- do not delete and manually recreate large files when intent is move/copy
+
+Reason:
+- reduces accidental truncation and content drift

@@ -1,0 +1,68 @@
+---
+description: Clean code principles - complexity, comments, naming, and code cleanup practices
+globs: apps/**/*.ts, apps/**/*.tsx, apps/**/*.js, apps/**/*.jsx, packages/**/*.ts
+alwaysApply: false
+---
+
+# Clean Code Principles
+
+## Single Responsibility e Abstrações
+
+- **SRP (Single Responsibility):** Uma classe/função = uma responsabilidade clara. Se o nome precisar de "e" ou "ou", considere extrair.
+- **OCP (Open/Closed):** Preferir abstrações para extensão sem alterar código existente. Evitar complexidade desnecessária — não criar abstrações que não resolvem problema real.
+- **Quando extrair:** Se a mesma lógica ou regra aparece em 2+ lugares; ou quando um módulo/classe faz mais de uma coisa distinta. Ver `@hexagonal-backend.mdc` para quando criar Ports.
+
+## Complexidade e Legibilidade
+
+- **Complexidade Ciclomática Máxima:** Funções/métodos devem ter complexidade ciclomática máxima de **10**. Se exceder, refatore extraindo funções/métodos menores. ESLint `complexity` (max 10) em `eslint.config.mjs`.
+- **Complexidade Cognitiva:** Mantenha baixa a complexidade cognitiva. Evite aninhamento excessivo; use early returns; extraia funções para lógica complexa.
+- **Early returns (Guard clauses):** Use retornos antecipados para casos inválidos/edge cases no início da função, reduzindo aninhamento e facilitando leitura. Em vez de `if (valid) { ... lógica principal ... }`, prefira `if (!valid) return; ... lógica principal`. Coloque validações, null-checks e condições de saída no topo; mantenha o caminho feliz linear e ao final.
+- **Código Auto-Explicativo:** O código deve ser auto-explicativo através de nomes descritivos. Se precisar de comentários inline para explicar “o quê”, refatore o código para ser mais claro.
+
+## Condicionais por Tipo e Enums
+
+- **Evitar cadeias de `if`/`else` ou `switch` por tipo:** sempre que houver **3 ou mais** ramos baseados em um tipo de domínio (intent, state, event, message type, etc.), prefira um `map`/objeto de callbacks indexado por **enum** em vez de comparar diretamente no controle de fluxo.
+- **Sempre usar enum, nunca string literal:** os mapas devem ser indexados apenas por enums/const objects de domínio (ver Rule `08-enum-no-magic-strings.mdc`); não usar `'shipping'`, `'text'` ou similares diretamente nos `if`/`switch` ou como chaves.
+- **Modelo recomendado (TypeScript – backend e frontend):**
+
+```ts
+const handlers: Record<RouterIntent, () => void> = {
+  [RouterIntent.Shipping]: handleShipping,
+  [RouterIntent.Payment]: handlePayment,
+  [RouterIntent.Support]: handleSupport,
+};
+
+const handler = handlers[intent];
+
+if (!handler) {
+  return defaultHandler();
+}
+
+return handler();
+```
+
+- **Switch/if com até 2 casos:** é aceitável manter `if`/`else` simples ou um `switch` com até 2 casos, desde que o uso de enum seja mantido e não haja duplicação de lógica.
+
+## Comentários e Documentação
+
+- **EVITE COMPLETAMENTE comentários inline:** O código deve ser auto-explicativo através de nomes descritivos, estrutura clara e organização lógica. Se você sente necessidade de comentários inline, refatore o código para ser melhor.
+- **Comentários permitidos APENAS para:**
+  - **JSDoc/TSDoc:** Use JSDoc (`/** */`) ou TSDoc para documentar APIs públicas (classes, métodos públicos, funções exportadas, componentes, hooks exportados). Documente contrato, parâmetros (`@param`), retornos (`@returns`), exceções (`@throws`).
+  - **OpenAPI/Swagger (Backend):** Comentários em decorators como `@ApiOperation`, `@ApiResponse` são permitidos e encorajados.
+- **Nomenclatura Descritiva:** Prefira nomes longos e descritivos a nomes curtos com comentários. Funções/métodos devem ter nomes que descrevam claramente o que fazem (ex: `classifyUserIntentFromMessages`, não `classify`).
+- **Código comentado deve ser removido:** Use git para histórico; não deixe código comentado no repositório.
+
+## Limpeza de Passagem
+
+- **Sempre faça limpeza ao modificar arquivos:** Ao modificar um arquivo, faça limpeza e refatoração necessária sem alterar API pública e sem quebrar testes.
+- **Durante limpeza:** Remova comentários inline desnecessários, melhore nomes pouco descritivos, reduza complexidade quando possível, remova código morto, aplique padrões do projeto consistentemente, elimine imports não usados.
+- **DRY:** Não repita lógica. Extraia para funções/hooks/utilitários reutilizáveis.
+
+## Anti-Patterns a Evitar
+
+- Funções com mais de 50 linhas (preferir extrair subfunções)
+- Mais de 3 níveis de aninhamento (use early return ou extração)
+- `any` sem justificativa explícita e documentada
+- Variáveis de uma letra exceto em loops (`i`, `j`, `k`)
+- Magic numbers/strings — extrair para constantes nomeadas. **CRÍTICO para domínio:** intents, states, event types, message types — usar SEMPRE enums/const objects (RouterIntent, ConversationState, ConversationEventType, WhatsAppInboundMessageType, SalesComposerMessageType). Ver Rule 08-enum-no-magic-strings.
+- Múltiplas responsabilidades em uma única função/classe (viola SRP)

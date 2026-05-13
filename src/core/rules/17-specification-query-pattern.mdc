@@ -1,0 +1,20 @@
+---
+description: Specification/filter pattern for dynamic query composition
+globs: "**/*Filter*.java,**/*Specification*.java"
+alwaysApply: false
+---
+
+# Specification Query Pattern
+
+Use when dynamic filtering is required.
+
+Guidelines:
+- keep filter DTO explicit, typed, and validation-aware
+- centralize predicate composition in dedicated specification/builder classes
+- keep controllers thin by delegating filter logic
+- keep pagination/sorting explicit and predictable
+
+Quality checks:
+- avoid repository method explosion for combinatorial filter variants
+- normalize case/text matching intentionally
+- ensure performance-sensitive filters have index-aware query strategy

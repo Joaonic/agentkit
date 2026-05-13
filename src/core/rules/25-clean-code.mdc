@@ -1,0 +1,51 @@
+---
+description: Clean code principles - complexity, naming, comments, and cleanup practices for all languages (Java, TypeScript, Kotlin)
+globs: ["**/*.java", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+alwaysApply: false
+---
+
+# Clean Code
+
+## Single Responsibility e Abstrações
+
+- **SRP:** Uma classe/função = uma responsabilidade clara. Se o nome precisar de "e" ou "ou", considere extrair.
+- **OCP:** Preferir abstrações para extensão sem alterar código existente. Não criar abstrações que não resolvem problema real.
+- **Quando extrair:** mesma lógica em 2+ lugares; ou módulo/classe faz mais de uma coisa distinta.
+
+## Complexidade e Legibilidade
+
+- **Complexidade Ciclomática Máxima:** Funções/métodos devem ter complexidade ciclomática ≤ 10. Se exceder, refature extraindo funções menores.
+- **Complexidade Cognitiva:** Evite aninhamento excessivo; use early returns; extraia funções para lógica complexa.
+- **Early returns (Guard clauses):** Coloque validações e null-checks no topo; mantenha o caminho feliz linear e ao final.
+- **Código Auto-Explicativo:** O código deve ser auto-explicativo através de nomes descritivos. Comentário inline para explicar "o quê" = código mal escrito.
+
+## Condicionais por Tipo e Enums
+
+- **Evitar cadeias de `if`/`else` ou `switch` por tipo:** quando houver 3+ ramos baseados em tipo de domínio, prefira `Map`/objeto indexado por enum.
+- **Sempre usar enum, nunca string literal:** magic strings de domínio SEMPRE substituídas por enums/constantes tipadas.
+- **Switch com ≤ 2 casos:** aceitável manter `if`/`else` simples, desde que enum seja usado.
+
+## Comentários e Documentação
+
+- **EVITE comentários inline:** o código deve ser auto-explicativo por nomes e estrutura.
+- **Comentários permitidos apenas para:**
+  - Javadoc/JSDoc/TSDoc em APIs públicas (classes, métodos/funções exportados, componentes, hooks).
+  - Decisões de design não óbvias ou trade-offs arquiteturais.
+  - Restrições ou contexto que o código não pode expressar.
+- **Código comentado = código morto:** use git para histórico; remova código comentado.
+- **Nomenclatura Descritiva:** prefira nomes longos e descritivos a nomes curtos com comentários.
+
+## Limpeza de Passagem
+
+- **Ao modificar um arquivo:** faça limpeza necessária sem alterar API pública e sem quebrar testes.
+- **Durante limpeza:** remova comentários desnecessários, melhore nomes pouco descritivos, reduza complexidade, remova código morto, elimine imports não usados.
+- **DRY:** não repita lógica. Extraia para funções/utilitários/classes reutilizáveis.
+
+## Anti-Patterns a Evitar
+
+- Funções com mais de 50 linhas (preferir extrair subfunções)
+- Mais de 3 níveis de aninhamento (use early return ou extração)
+- `any` (TS) / `Object` sem cast explícito (Java) sem justificativa documentada
+- Variáveis de uma letra, exceto em loops (`i`, `j`, `k`)
+- Magic numbers/strings — extrair para constantes nomeadas
+- Múltiplas responsabilidades em uma única função/classe

@@ -1,0 +1,24 @@
+---
+description: Flyway migration integrity, realistic integration test policy, and full-context test discipline
+globs: "**/*.sql,**/*.java,**/*.yml,**/*.yaml"
+alwaysApply: false
+---
+
+# Database and Integration Test Policy
+
+Flyway rules:
+- migrations are append-only
+- never rewrite applied migration files
+- keep schema evolution traceable and reviewable
+- use repeatable migrations intentionally for idempotent data/config seeds
+
+Integration testing:
+- prefer PostgreSQL-realistic integration behavior
+- use Testcontainers for DB-sensitive integration paths when applicable
+- avoid relying on in-memory DB behavior for SQL-specific features
+- integration and E2E tests MUST use `@SpringBootTest` (full context) with Testcontainers — never `@SpringBootTest(classes = {...})` or selective `@Import` to create partial context
+- if the full context fails to start, fix the application — do not weaken the test to use partial context
+
+Validation requirements:
+- schema changes require repository/integration verification
+- destructive migrations require failure-path and rollback considerations

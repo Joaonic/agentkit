@@ -1,0 +1,27 @@
+---
+description: Ciclo de vida de planos em docs/implementation — mover arquivo, atualizar matriz e ondas.
+globs: docs/implementation/**/*.md, PLAN_STATUS_MATRIX.md, EXECUTION_WAVES.md
+alwaysApply: false
+---
+
+# Plano em `docs/implementation/**` — path e governação
+
+## Obrigatório quando o estado real do plano muda
+
+1. **Atualizar o plano** — `todos` (frontmatter) e/ou seção de estado; deltas explícitos se parcial.
+2. **Mover com `mv`** — a pasta deve refletir o estado:
+   - `not_implemented/<domínio>/` → `partial/<domínio>/` quando houver baseline entregue e trabalho remanescente.
+   - `partial/<domínio>/` → `implemented/<domínio>/` quando todos os critérios estiverem fechados.
+   - Nunca deixar um plano **parcial** ou **implementado** só em `not_implemented/` por conveniência.
+   - Ver `.cursor/rules/09-file-operations.mdc` — não recriar arquivo para simular move.
+3. **Sincronizar** na mesma entrega (ou PR imediato):
+   - `PLAN_STATUS_MATRIX.md`
+   - `EXECUTION_WAVES.md` (se aplicável)
+   - `docs/implementation/STATUS.md`
+   - `docs/implementation/not_implemented/README.md`, `partial/README.md`
+   - Links em `docs/milestones/*.md` e outros docs que referenciem o path antigo.
+
+## Fonte normativa
+
+- `docs/governance/cursor/workflow/05-implement-plan.md` §5.2 e passo **11** da tabela §5 (índice `workflow.md`).
+- Comando `/implement-plan` — seção «Ao mudar o estado real do plano».

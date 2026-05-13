@@ -1,0 +1,21 @@
+---
+description: Mandatory posttask validation gate before completion
+globs: "**/*"
+alwaysApply: true
+---
+
+# Posttask Gate
+
+Mandatory:
+- execute posttask before declaring completion
+- report each mandatory command as `pass`, `fail`, or `n/a`
+- include failure evidence and impacted scope when `fail`
+- never hide failed checks in aggregated summary
+
+Blocker policy:
+- any failed mandatory check blocks completion
+- missing required tooling/binaries must be explicit in report
+
+Evidence:
+- include validation table in final report
+- include explicit reason for each `n/a`

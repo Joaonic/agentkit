@@ -1,0 +1,127 @@
+---
+description: Mandatory ApplicationContext smoke test and full-context integration test discipline — posttask must verify context boots successfully
+globs: "apps/**/*"
+alwaysApply: true
+---
+
+# Application Context Smoke Test & Full-Context Integration Test Discipline — Mandatory
+
+## Rule
+
+Every application in `apps/` **must** have a smoke test that verifies the full application context starts successfully. This test **must** run as part of posttask.
+
+If the smoke test does not exist when the agent begins work, the agent **must create it** before completing the task.
+
+## Rationale
+
+Bean wiring errors, missing `@ConfigurationProperties` bindings, circular dependencies, duplicate bean registrations, and `InitializingBean` failures are **100% deterministic startup failures**. They are invisible to unit tests and `@WebMvcTest` slices but cause total production outages. A single integration test that boots the full context catches all of them.
+
+## Java/Spring Boot (`apps/` with `pom.xml`)
+
+Required test class: `ApplicationContextSmokeTest` in the test root package.
+
+Characteristics:
+- `@SpringBootTest` — loads the **FULL** application context (no `classes=` restriction)
+- Uses **Testcontainers** for ALL infrastructure dependencies the app needs (PostgreSQL, Redis, RabbitMQ, Elasticsearch, etc.)
+- Sets dummy values for all mandatory environment variables via `@DynamicPropertySource` or `@TestPropertySource` so that `InitializingBean` / config validation beans do not block startup
+- Does NOT mock infrastructure beans — the point is to validate real wiring
+- Minimal: a single `@Test` method asserting context loads (e.g. inject `ApplicationContext` and assert not null)
+- MUST be included in `./mvnw test` (no special profile exclusion)
+
+Example pattern:
+```java
+@SpringBootTest
+@Testcontainers
+@TestPropertySource(properties = {
+    // Set dummy values for ALL mandatory env vars that would block startup
+    // e.g. "ghl.api-key=test-key", "legacy-app.api-key=test-key"
+})
+class ApplicationContextSmokeTest {
+
+    // Declare containers matching the app's REAL dependencies
+    @Container
+    static final PostgreSQLContainer<?> postgres = InfraPostgresContainer.create()
+            .withInitScript("init-schema.sql");
+
+    // Add Redis, RabbitMQ, etc. as needed by the app
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+        // Add all infrastructure properties
+    }
+
+    @Autowired
+    private ApplicationContext applicationContext;
+
+    @Test
+    void contextLoads() {
+        assertThat(applicationContext).isNotNull();
+    }
+}
+```
+
+## CRITICAL — Full-Context Integration Tests vs. Slice Tests
+
+### Correct usage of test annotations
+
+| Annotation | Purpose | Context loaded | When to use |
+|------------|---------|----------------|-------------|
+| `@SpringBootTest` | Full application context | ALL beans, ALL configs, ALL infrastructure | Integration tests, E2E tests, smoke tests |
+| `@WebMvcTest(Controller.class)` | Controller slice only | Only web layer + specified controller | Controller unit tests (testing request/response mapping, security) |
+| `@DataJpaTest` | JPA slice only | Only persistence layer | Repository unit tests |
+
+### PROHIBITION — No fake integration tests
+
+The following patterns are **FORBIDDEN** in tests labeled as "integration" or "E2E":
+
+- `@SpringBootTest(classes = {ServiceA.class, ServiceB.class})` — selectively importing beans defeats the purpose of integration testing. If the test name or intent is integration/E2E, it **MUST** boot the full context.
+- `@ContextConfiguration(classes = ...)` to limit the context in integration tests.
+- `@Import({BeanA.class, BeanB.class})` on `@SpringBootTest` tests to selectively compose the context — this creates a **fake context** that does not represent production.
+- Any `@TestConfiguration` that replaces or overrides production beans with no-op implementations to make context load — this hides real wiring problems.
+
+### ALLOWED — Selective imports in slice tests only
+
+- `@WebMvcTest(controllers = MyController.class)` + `@Import({AppAuthz.class, SecurityExceptionAdvice.class})` — this is **correct** because `@WebMvcTest` is explicitly a slice test that only loads the web layer.
+- `@DataJpaTest` + `@AutoConfigureTestDatabase(replace = NONE)` — correct for persistence-only slice tests.
+
+### When the application fails to start — fix the APPLICATION, not the test
+
+If the smoke test or any `@SpringBootTest` fails because the application context cannot start:
+
+1. **DIAGNOSE** the actual startup failure (missing env var, bad bean wiring, circular dependency, missing config).
+2. **FIX the application code** — add `@ConditionalOnProperty`, supply defaults in `application.yaml`, fix the wiring.
+3. **NEVER** "fix" the test by removing `@SpringBootTest`, adding `classes=` to limit context, mocking beans to skip validation, or disabling the test.
+
+The test is correct. The application is broken. Fix the application.
+
+## Node/TypeScript (`apps/` with `package.json`)
+
+Required: a test that starts the application and verifies it responds to health check.
+
+Characteristics:
+- Uses the project's test framework (Jest, Vitest, etc.)
+- Starts the real server (not mocked)
+- Validates health endpoint or basic startup signal
+- Tears down after assertion
+
+## Posttask Obligation
+
+When running posttask on any `apps/*` subproject:
+
+1. **Verify** the smoke test class `ApplicationContextSmokeTest` exists with `@SpringBootTest` and Testcontainers. A plain JUnit test that instantiates DTOs is NOT a smoke test. If missing or fake → **create a real one** following the pattern above.
+2. **Run** the smoke test explicitly: `./mvnw test -Dtest="ApplicationContextSmokeTest"` (Java) or equivalent.
+3. **Report** result in posttask evidence table.
+4. If the smoke test **fails**, it is a **BLOCKER** — the task cannot be declared complete. Diagnose and fix the application.
+
+## Prohibition
+
+- Do NOT exclude the smoke test from CI profiles.
+- Do NOT use `@Disabled`, `@Ignore`, or skip flags on the smoke test.
+- Do NOT substitute an in-memory database (H2) for a real one if the app uses PostgreSQL — use Testcontainers.
+- Do NOT mock infrastructure beans in the smoke test — the whole point is real wiring validation.
+- Do NOT write a "smoke test" that is just a plain JUnit test instantiating DTOs — that validates nothing about application startup.
+- Do NOT use `classes=` on `@SpringBootTest` to limit context in smoke or integration tests.
+- Do NOT override production `InitializingBean` / validation config beans in tests — instead, supply the required properties via `@TestPropertySource` or `@DynamicPropertySource`.

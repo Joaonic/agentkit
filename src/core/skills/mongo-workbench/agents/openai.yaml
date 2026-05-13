@@ -1,0 +1,8 @@
+interface:
+  display_name: "MongoDB Workbench"
+  short_description: "MongoDB modeling, indexes, aggregations, transactions, and safe operations."
+  brand_color: "#47A248"
+  default_prompt: "Use $mongo-workbench to model or review this MongoDB design: workload and access patterns first, explicit embed vs reference decisions, compound indexes with ESR ordering, full queries or aggregation pipelines, transaction need and cost, schema validation if useful, and operational risks (bulk updates, reshaping, batched migrations)."
+
+dependencies:
+  tools: []

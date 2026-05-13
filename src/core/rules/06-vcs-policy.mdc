@@ -1,0 +1,13 @@
+---
+description: VCS tooling policy by repository type
+globs: "**/*"
+alwaysApply: true
+---
+
+# VCS Policy
+
+Default:
+- GitLab repositories use glab and MR terminology.
+
+Exception:
+- web/your-github-project uses gh and PR terminology.

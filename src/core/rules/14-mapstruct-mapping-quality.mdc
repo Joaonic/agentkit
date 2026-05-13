@@ -1,0 +1,20 @@
+---
+description: MapStruct mapping completeness and quality constraints
+globs: "**/*Mapper*.java"
+alwaysApply: false
+---
+
+# MapStruct Mapping Quality
+
+Mandatory:
+- map all required fields (including nested objects)
+- treat unmapped warnings intentionally (map or justify ignore)
+- keep mapper ownership clear by boundary (DTO-domain vs entity-domain)
+
+When custom mapping is needed:
+- document conversion intent for non-trivial transforms
+- add tests for complex transforms (enum/date/nested/cycle-sensitive)
+
+Avoid:
+- partial mapping that silently drops meaningful data
+- giant multipurpose mappers mixing unrelated modules

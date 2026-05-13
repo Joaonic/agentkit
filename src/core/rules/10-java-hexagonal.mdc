@@ -1,0 +1,34 @@
+---
+description: Java backend architecture baseline aligned with profiler-style hexagonal design
+globs: "**/*.java"
+alwaysApply: false
+---
+
+# Java Hexagonal Standard
+
+Reference structure:
+
+**Inbound (invoke `core/port/in` only):**
+- `api` — first-party public API **you control** for domain clients. Today: `api/rest` (HTTP controllers/DTO boundary). Other transports (e.g. events) remain under `api/...`.
+- `adapters/in` — **external** ingress: webhooks, third-party HTTP callbacks, message/event consumers from outside, etc. Translate wire format to use-case inputs; delegate to the same `port/in` contracts as `api`.
+
+**Core:**
+- `core/domain`: entities, value objects, invariants
+- `core/application`: use-case orchestration
+- `core/port/in`: input contracts
+- `core/port/out`: output contracts
+
+**Outbound:**
+- `infrastructure`: persistence, outbound HTTP/clients, messaging producers, etc. (implement `port/out`)
+
+Mandatory dependency direction:
+- external layers depend inward
+- domain/application do not depend on Spring/JPA/framework/adapters
+- `api` handlers and `adapters/in` entrypoints depend on `port/in` contracts, not concrete use-case implementations
+- outbound adapters implement `port/out` contracts
+
+Boundary checklist:
+- no business rules in `api` or `adapters/in` (transport/edge validation only)
+- no framework annotation requirement in domain behavior
+- no direct infrastructure access from domain/application
+- no contract leakage from persistence models to `api` DTOs

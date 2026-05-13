@@ -1,0 +1,6 @@
+# AgentKit Free Tier — Agents
+# These agents are included in the free (open-source) package
+backend.md
+frontend.md
+code-reviewer.md
+verifier.md

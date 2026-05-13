@@ -1,0 +1,13 @@
+---
+description: Tenant isolation, scoping por tenantId + customerPhoneE164, redaction de tokens/secrets/IDs.
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Data Security
+
+- **Tenant isolation** — todas as queries e operações escopadas por `tenant_id`.
+- **Customer scope** — `tenant_id` + `wa_user_phone` (E.164) para conversas.
+- **Redaction** — tokens, secrets, IDs internos, payloads sensíveis nunca em logs ou prompts.
+- **Data minimization** — LLM recebe apenas safe view models (TOON); nunca IDs brutos.
+- **Scoping** — validar tenant em toda borda (guards, pipes).

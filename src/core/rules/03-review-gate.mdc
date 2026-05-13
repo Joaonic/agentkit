@@ -1,0 +1,15 @@
+---
+description: Technical review gate is mandatory before completion
+globs: "**/*"
+alwaysApply: true
+---
+
+# Review Gate
+
+Before completion:
+- run `review-open-pr`
+- resolve blocking findings
+- validate linked issue criteria against full diff evidence
+- inspect CI failures and cancelled jobs root cause
+
+No completion with unresolved blocking findings.

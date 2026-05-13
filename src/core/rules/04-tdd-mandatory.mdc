@@ -1,0 +1,17 @@
+---
+description: Behavior changes require test-first discipline, regression coverage, and full-context validation
+globs: "**/*.{java,ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+# TDD Mandatory
+
+Mandatory:
+- failing test before behavior change
+- regression test for bug fixes
+- deterministic and meaningful assertions
+- integration/E2E tests MUST boot full application context (`@SpringBootTest` without `classes=`) with Testcontainers
+- `@Import` and `@ContextConfiguration(classes=...)` are ONLY for slice tests (`@WebMvcTest`, `@DataJpaTest`) — NEVER for integration/E2E
+- if application context fails to start, fix the application — never fix the test to skip context loading
+
+No merge-ready status for behavior changes without test evidence.

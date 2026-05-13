@@ -1,0 +1,29 @@
+---
+description: TDD é OBRIGATÓRIO. NUNCA escrever implementação antes dos testes.
+globs: ["**/*.ts", "**/*.tsx", "**/*.spec.ts", "**/*.test.tsx"]
+alwaysApply: true
+---
+
+# TDD — Obrigatório
+
+**Fonte única:** `docs/governance/cursor/workflow.md` (índice) — §0 `workflow/00-investigation.md`, §1/§1.1 `workflow/01-tdd.md` (**`superpowers:subagent-driven-development`** em planos)
+
+## BLOQUEIO
+
+**Você NÃO PODE** escrever código de implementação para funcionalidade nova sem antes:
+
+1. Ter cumprido **§0** (investigação na codebase e contexto — ver `workflow.md`) quando o escopo for comportamento novo
+2. Ter escrito os testes correspondentes
+3. Ter rodado os testes e confirmado que **falham**
+4. Só então implementar até os testes passarem
+
+## Antes de cada bloco de implementação
+
+Perguntar: *"Cumpri §0 (investigação) se for comportamento novo?"* — Se NÃO → parar e investigar.
+
+Perguntar: *"Escrevi os testes primeiro e vi falhar?"* — Se NÃO → parar e escrever testes.
+
+## Referências
+
+- `docs/governance/cursor/workflow.md` — ciclo completo, exceções
+- Skill: `tdd-workflow` | Command: `/tdd` | Rules: `testing-backend`, `testing-frontend`

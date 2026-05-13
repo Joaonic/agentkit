@@ -1,0 +1,71 @@
+---
+description: Segurança operacional de banco — risco, confirmação, rollback e formato de resposta obrigatório antes de DDL/DML destrutivo
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Database Operational Safety
+
+## Objetivo
+
+Impedir que o agente **proponha ou execute** alterações perigosas em banco de dados sem **contexto suficiente**, **validação**, **plano de rollback** e **confirmação explícita** quando exigido.
+
+## Classificação de risco
+
+| Nível | Critério |
+|-------|----------|
+| **Baixo** | Leitura; `EXPLAIN`; alterações apenas em dev local isolado, reversíveis e sem dado de produção. |
+| **Médio** | DDL não bloqueante em janela acordada; índices com `CONCURRENTLY`; migrações reversíveis com baixa cardinalidade. |
+| **Alto** | Operações na lista abaixo; qualquer dúvida sobre lock ou tempo → tratar como **alto**. |
+
+**Alto risco (sempre tratado como tal):**
+
+- `DROP` (objetos, banco, schema, partições)
+- `TRUNCATE`
+- `DELETE` em massa (escopo amplo)
+- `UPDATE` em massa (escopo amplo)
+- `ALTER TABLE` bloqueante
+- `CREATE INDEX` pesado em produção sem janela
+- `REINDEX` / `VACUUM FULL`
+- Migrações **irreversíveis** (perda de dados)
+
+## Ações permitidas sem confirmação explícita
+
+- Ler schema, dados de exemplo anonimizados.
+- Sugerir/escrever migrações **apenas como texto** em branch local, risco baixo, reversão clara — sem itens de alto risco.
+- `EXPLAIN` / `EXPLAIN ANALYZE` read-only em ambiente não produtivo.
+
+## Ações que exigem confirmação explícita
+
+- Qualquer item de **alto risco**.
+- Operações de **médio risco** em produção ou staging compartilhado.
+- Execução real de SQL DDL/DML pelo agente.
+
+## Checklist pré-mudança
+
+- [ ] Ambiente e nome exato (dev/staging/prod)
+- [ ] Classificação de risco e motivo
+- [ ] Backup ou snapshot recente disponível
+- [ ] Tamanho/ordem de grandeza das tabelas afetadas; FKs/triggers existentes
+- [ ] Plano de execução revisado (`EXPLAIN`) para volume significativo
+- [ ] Estratégia de lock / janela de manutenção acordada
+- [ ] Rollback mínimo definido
+
+## Rollback mínimo exigido
+
+Para **médio** e **alto** risco:
+- Down migration reversível **testada** em ambiente não produtivo, **ou**
+- Restore a partir de backup/snapshot com RPO/RTO documentado.
+
+Sem um destes articulados: **não propor execução**.
+
+## Formato obrigatório de resposta
+
+Toda proposta de mudança não-leitura deve incluir (nesta ordem):
+
+1. **Impacto esperado** — dados afetados, volume, duração estimada
+2. **Pré-condições** — backups, permissões, versão do motor
+3. **Janela de manutenção** — quando aplicar
+4. **Lock ou indisponibilidade potencial** — tabelas/índices em risco
+5. **Estratégia de rollback** — down migration, script inverso ou restore
+6. **Validação** — queries/checks após aplicar

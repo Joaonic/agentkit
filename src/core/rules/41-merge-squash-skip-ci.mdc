@@ -1,0 +1,95 @@
+---
+description: Squash merge com [skip ci] para evitar pipelines desnecessárias em merges sequenciais no mesmo repositório
+alwaysApply: true
+---
+
+# Merge Squash + Skip CI — Economia de Pipelines
+
+## Regra obrigatória
+
+Quando o agente estiver a fazer **merges sequenciais** (2+ MRs/branches) no **mesmo repositório** para a branch principal (`main`, `master`, ou target configurado), **DEVE**:
+
+1. **Sempre usar squash merge** — nunca merge commit regular. O squash produz um único commit limpo na branch alvo.
+2. **Reescrever a mensagem do merge** — não usar a mensagem automática do GitLab/GitHub (`Merge branch 'feature/x' into 'main'`). Criar uma mensagem semântica clara que descreva o que o merge entrega, seguindo a convenção de `27-commit-messages.mdc`:
+   - Formato: `tipo(#issue): descrição concisa do que foi entregue`
+   - Exemplo: `feat(#142): add tenant-scoped audit log with event streaming`
+3. **Adicionar `[skip ci]`** na mensagem de commit de **todos os merges intermédios** (todos exceto o último da sequência). Isto evita disparar pipelines de deploy inúteis que serão imediatamente obsoletas pelo merge seguinte.
+4. **Só o último merge** da sequência deve disparar o CI/CD completo (sem `[skip ci]`).
+
+### ⚠️ GitLab gera DOIS commits no squash merge — `[skip ci]` deve estar em AMBOS
+
+No **GitLab**, o squash merge produz **dois commits** na branch alvo:
+1. O **squash commit** — todos os commits da branch comprimidos num só (controlado por `--squash-message`).
+2. O **merge commit** — commit de merge que o GitLab **sempre** gera automaticamente (controlado por `--message`).
+
+**Ambos** disparam o pipeline de CI/CD de forma independente. Se `[skip ci]` estiver apenas no squash commit mas não no merge commit, o pipeline **vai disparar** na mesma. O agente **deve** usar **ambas as flags** com `[skip ci]` nos merges intermédios.
+
+> **GitHub não tem este problema:** no GitHub, squash merge produz apenas um commit (sem merge commit extra). Basta `--subject` com `[skip ci]`.
+
+## Formato da mensagem com skip ci
+
+```
+tipo(#issue): descrição concisa [skip ci]
+```
+
+Exemplo de sequência de 3 merges:
+
+| Ordem | Mensagem de commit | CI |
+|-------|--------------------|----|
+| 1º merge | `feat(#142): add tenant-scoped audit log [skip ci]` | ❌ Não dispara |
+| 2º merge | `fix(#88): guard tenant scope on event listener [skip ci]` | ❌ Não dispara |
+| 3º merge (último) | `feat(#201): implement auth session use case` | ✅ Dispara deploy |
+
+## Quando aplicar
+
+- **Aplicar:** quando o agente vai fazer 2+ merges seguidos no mesmo repositório (ex.: plano com múltiplas issues/MRs, execução paralela com merge sequencial, batch de MRs prontos).
+- **Não aplicar:** quando há apenas 1 merge isolado — nesse caso, fazer merge normal com squash e mensagem semântica, sem `[skip ci]`.
+
+## Como identificar o "último merge"
+
+- O agente **deve** saber antecipadamente quantos merges vai realizar na sequência.
+- Se o número for incerto, usar `[skip ci]` em todos e, no final da sequência, fazer um **commit vazio** na branch principal para disparar o CI:
+
+```bash
+git commit --allow-empty -m "ci: trigger deploy after batch merge"
+git push origin main
+```
+
+## Comandos de referência
+
+### GitLab (glab) — squash merge com mensagem customizada
+
+**ATENÇÃO:** usar **ambas** as flags `--squash-message` e `--message` — o GitLab gera dois commits (squash + merge) e ambos disparam CI independentemente.
+
+```bash
+# Merge intermédio — [skip ci] em AMBAS as mensagens
+glab mr merge <IID> --squash \
+  --squash-message "feat(#142): add tenant-scoped audit log [skip ci]" \
+  --message "feat(#142): add tenant-scoped audit log [skip ci]" \
+  --yes
+
+# Último merge da sequência (sem skip ci) — ambas as mensagens semânticas
+glab mr merge <IID> --squash \
+  --squash-message "feat(#201): implement auth session use case" \
+  --message "feat(#201): implement auth session use case" \
+  --yes
+```
+
+### GitHub (gh) — squash merge com mensagem customizada
+
+```bash
+# Merge com squash e mensagem customizada
+gh pr merge <NUMBER> --squash --subject "feat(#142): add tenant-scoped audit log [skip ci]"
+
+# Último merge da sequência (sem skip ci)
+gh pr merge <NUMBER> --squash --subject "feat(#201): implement auth session use case"
+```
+
+## Rationale
+
+Cada merge na `main` dispara o pipeline de CI/CD que inclui deploy automático. Quando há N merges sequenciais, os primeiros N-1 deploys são desperdiçados — o artefato é imediatamente substituído pelo merge seguinte. `[skip ci]` nos intermédios poupa tempo de CI, recursos de infra e evita deploys parciais desnecessários.
+
+## Exceções
+
+- Se houver necessidade explícita de validar CI entre merges (ex.: dependência de artefacto publicado), o agente pode omitir `[skip ci]` nesse merge específico e documentar o motivo.
+- Merges automáticos de Dependabot/Renovate não são cobertos por esta regra (têm pipeline próprio).

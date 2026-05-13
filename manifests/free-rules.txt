@@ -1,0 +1,12 @@
+# AgentKit Free Tier — Rules
+# These rules are included in the free (open-source) package
+00-governance.mdc
+01-investigation-before-implementation.mdc
+03-review-gate.mdc
+04-tdd-mandatory.mdc
+06-vcs-policy.mdc
+09-file-operations.mdc
+25-clean-code.mdc
+26-incremental-changes.mdc
+27-commit-messages.mdc
+30-posttask.mdc

@@ -1,0 +1,34 @@
+---
+description: Implementação incremental — completar cada parte antes de avançar, sem código intermediário
+globs: ["**/*.java", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+alwaysApply: false
+---
+
+# Implementação Incremental
+
+Toda nova feature, migração ou refactor **DEVE** ser feita incrementalmente:
+
+## Regras
+
+1. **Trabalhar por partes isoladas:** Quebrar em etapas pequenas e independentes.
+2. **Completar cada parte antes de avançar:** Implementar totalmente; remover TODOS os vestígios antigos; sem código morto, imports não usados ou referências antigas.
+3. **Validar antes de continuar:** lint, build, testes. Zero warnings.
+4. **Zero tolerância a código intermediário:** Não avançar se há código antigo coexistindo, imports não usados, erros de lint/build, ou funcionalidade pela metade.
+5. **Commits incrementais:** Um commit por etapa completa; mensagem descritiva.
+
+## Fluxo por Etapa
+
+1. Implementar a mudança específica
+2. Remover código antigo relacionado
+3. Lint fix
+4. Build
+5. Testar
+6. Commit
+7. **Só então** avançar
+
+## Anti-Pattern
+
+- Criar novo mantendo antigo "por enquanto"
+- Deixar limpeza "para depois"
+- Múltiplas partes em um único commit
+- Avançar com build/lint quebrado

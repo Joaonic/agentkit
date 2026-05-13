@@ -1,0 +1,21 @@
+---
+description: DTO and domain modeling conventions for Java services
+globs: "**/*.java"
+alwaysApply: false
+---
+
+# DTO and Domain Design
+
+DTO conventions:
+- use immutable transport shapes (records when suitable)
+- keep request/response DTOs separate from domain entities
+- apply bean validation at transport boundary
+
+Domain conventions:
+- domain entities/value objects enforce business invariants
+- do not expose persistence entities as API contracts
+
+Mapping discipline:
+- nested required fields must be mapped explicitly
+- avoid ID-only shortcuts when full object context is required
+- keep domain language consistent across use-case boundaries
