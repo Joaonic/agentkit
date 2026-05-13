@@ -1,0 +1,709 @@
+name: your-app-prod
+
+services:
+  # Mail services (mailserver + webmail) moved to stack-mail.yml.
+  # Deploy independently with: docker compose -f stack-mail.yml up -d
+
+  api:
+    image: ${API_IMAGE}:${API_IMAGE_TAG}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: '1' }
+        reservations: { memory: 256M, cpus: '0.5' }
+    env_file:
+      - .env
+    environment:
+      # Shopify App Billing API accepts only specific currency codes (not BRL). Use USD.
+      SHOPIFY_BILLING_CURRENCY_CODE: ${SHOPIFY_BILLING_CURRENCY_CODE:-USD}
+      # Prompt sync no boot da API (rede Docker; evita Cloudflare no hostname público)
+      LANGFUSE_PROMPT_SYNC_ON_BOOT: ${LANGFUSE_PROMPT_SYNC_ON_BOOT:-true}
+      LANGFUSE_INTERNAL_BASE_URL: ${LANGFUSE_INTERNAL_BASE_URL:-http://langfuse-web:3000}
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    command:
+      - node
+      - --experimental-specifier-resolution=node
+      - dist/apps/api/src/main.js
+    secrets:
+      - postgres_password
+      - redis_password
+      - meta_app_secret
+      - meta_access_token
+      - meta_verify_token
+      - meta_token_encryption_key
+      - shopify_api_secret
+      - openai_api_key
+      - stripe_secret_key
+      - stripe_webhook_secret
+      - smtp_pass
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      langfuse-web:
+        condition: service_started
+    expose:
+      - '${API_PORT:-3001}'
+    networks:
+      - internal
+      - public
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://127.0.0.1:' + (process.env.API_PORT || 3001) + '/health/ready', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1));"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  worker:
+    image: ${API_IMAGE}:${API_IMAGE_TAG}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: '1' }
+        reservations: { memory: 256M, cpus: '0.5' }
+    env_file:
+      - .env
+    environment:
+      LANGFUSE_PROMPT_SYNC_ON_BOOT: 'false'
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    command: ['sh', '-c', '${API_WORKER_COMMAND}']
+    secrets:
+      - postgres_password
+      - redis_password
+      - meta_app_secret
+      - meta_access_token
+      - meta_verify_token
+      - meta_token_encryption_key
+      - shopify_api_secret
+      - openai_api_key
+      - stripe_secret_key
+      - stripe_webhook_secret
+      - smtp_pass
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ['CMD-SHELL', 'kill -0 1']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  tempo:
+    image: grafana/tempo:2.10.1
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: '0.5' }
+        reservations: { memory: 128M, cpus: '0.25' }
+    command: ['-config.file=/etc/tempo.yaml']
+    volumes:
+      - your_app_agent_prod_tempo_data:/var/tempo
+      - ../ops/tempo.yaml:/etc/tempo.yaml:ro
+    expose:
+      - '3200'
+      - '4317'
+      - '4318'
+    networks:
+      - internal
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:3200/ready || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  loki:
+    image: grafana/loki:3.6.6
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 1G, cpus: '1' }
+        reservations: { memory: 256M, cpus: '0.25' }
+    command: ['-config.file=/etc/loki/local-config.yaml']
+    volumes:
+      - your_app_agent_prod_loki_data:/loki
+    expose:
+      - '3100'
+    networks:
+      - internal
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:3100/ready || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  promtail:
+    image: grafana/promtail:3.6.6
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 256M, cpus: '0.25' }
+        reservations: { memory: 64M, cpus: '0.1' }
+    volumes:
+      - ../ops/promtail.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: ['-config.file=/etc/promtail/config.yaml']
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:9080/ready || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  grafana:
+    image: grafana/grafana:12.3.3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: '0.5' }
+        reservations: { memory: 128M, cpus: '0.25' }
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SERVER_DOMAIN: ${GRAFANA_DOMAIN}
+      GF_SERVER_ROOT_URL: https://${GRAFANA_DOMAIN}
+    secrets:
+      - grafana_admin_password
+    configs:
+      - source: load_secrets_sh
+        target: /etc/load-secrets.sh
+        mode: 0555
+    volumes:
+      - your_app_agent_prod_grafana_data:/var/lib/grafana
+      - ../ops/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      tempo:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    expose:
+      - '3000'
+    networks:
+      - internal
+      - public
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:3000/api/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  pgadmin:
+    image: dpage/pgadmin4:9.12
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: '0.5' }
+        reservations: { memory: 128M, cpus: '0.25' }
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_default_password
+      PGADMIN_LISTEN_PORT: 80
+    secrets:
+      - pgadmin_default_password
+    volumes:
+      - your_app_agent_prod_pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - '80'
+    networks:
+      - internal
+      - public
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:80/misc/ping || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  redisinsight:
+    image: redis/redisinsight:3.0
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 256M, cpus: '0.25' }
+        reservations: { memory: 64M, cpus: '0.1' }
+    volumes:
+      - your_app_agent_prod_redisinsight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose:
+      - '5540'
+    networks:
+      - internal
+      - public
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:5540/api/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  postgres:
+    image: ${PGVECTOR_IMAGE:-pgvector/pgvector:pg18-trixie}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 2G, cpus: '2' }
+        reservations: { memory: 512M, cpus: '0.5' }
+    shm_size: 256mb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - your_app_agent_prod_postgres_data:/var/lib/postgresql
+      - ../ops/postgres-init:/docker-entrypoint-initdb.d:ro
+    expose:
+      - '${POSTGRES_PORT:-5432}'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  redis:
+    image: redis:8.6.0-alpine
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: '0.5' }
+        reservations: { memory: 128M, cpus: '0.25' }
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        export REDIS_PASSWORD="$$(cat /run/secrets/redis_password)" &&
+        exec redis-server --appendonly yes
+        --requirepass "$$REDIS_PASSWORD"
+        --maxmemory 450mb --maxmemory-policy noeviction
+    secrets:
+      - redis_password
+    volumes:
+      - your_app_agent_prod_redis_data:/data
+    expose:
+      - '${REDIS_PORT:-6379}'
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$(cat /run/secrets/redis_password)" ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  # api-migrate removed: migrations now run via `docker run` before stack deploy.
+  # See deploy/scripts/lib/migrations.sh (Swarm-compatible, Option A from #206).
+
+  # Nginx reverse proxy — desabilitado por padrão (reverse proxy externo no host).
+  # Ativar com: docker compose --profile nginx up -d
+  # Requer NGINX_IMAGE e NGINX_IMAGE_TAG no .env.
+  nginx:
+    image: ${NGINX_IMAGE:-nginx}:${NGINX_IMAGE_TAG:-1.29.5-alpine}
+    restart: unless-stopped
+    profiles: ['nginx']
+    deploy:
+      resources:
+        limits: { memory: 256M, cpus: '0.5' }
+        reservations: { memory: 64M, cpus: '0.1' }
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ${TLS_CERT_PATH:-/dev/null}:/etc/nginx/certs/fullchain.pem:ro
+      - ${TLS_KEY_PATH:-/dev/null}:/etc/nginx/certs/privkey.pem:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - internal
+      - public
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:26.1-alpine
+    restart: unless-stopped
+    user: '101:101'
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${LANGFUSE_CLICKHOUSE_USER:-clickhouse}
+    secrets:
+      - langfuse_clickhouse_password
+    configs:
+      - source: load_secrets_sh
+        target: /etc/load-secrets.sh
+        mode: 0555
+    volumes:
+      - your_app_agent_prod_langfuse_clickhouse_data:/var/lib/clickhouse
+      - your_app_agent_prod_langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:8123/ping || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    expose:
+      - '8123'
+      - '9000'
+    networks:
+      - internal
+    deploy:
+      resources:
+        # 1G era insuficiente para migrations ClickHouse (erro 241 memory limit exceeded). Mínimo recomendado 2G.
+        limits: { memory: 2G, cpus: '1' }
+        reservations: { memory: 512M, cpus: '0.25' }
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio:latest
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - -c
+      - '. /etc/load-secrets.sh && mkdir -p /data/langfuse && exec minio server --address :9000 --console-address :9001 /data'
+    environment:
+      MINIO_ROOT_USER: ${LANGFUSE_MINIO_USER:-minio}
+    secrets:
+      - langfuse_minio_password
+    configs:
+      - source: load_secrets_sh
+        target: /etc/load-secrets.sh
+        mode: 0555
+    volumes:
+      - your_app_agent_prod_langfuse_minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    expose:
+      - '9000'
+      - '9001'
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits: { memory: 256M, cpus: '0.25' }
+        reservations: { memory: 64M, cpus: '0.1' }
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    environment:
+      NODE_OPTIONS: ${LANGFUSE_WORKER_NODE_OPTIONS:---max-old-space-size=512}
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-https://lf.lojanochat.com.br}
+      TELEMETRY_ENABLED: ${LANGFUSE_TELEMETRY_ENABLED:-false}
+      AUTH_DISABLE_SIGNUP: ${LANGFUSE_AUTH_DISABLE_SIGNUP:-true}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: 'false'
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: ${LANGFUSE_CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_CLUSTER_ENABLED: 'false'
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_USER:-minio}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION:-us-east-1}
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_USER:-minio}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_REGION:-us-east-1}
+      SECRETS_DATABASE_NAME: langfuse
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_HOST: postgres
+      CLICKHOUSE_HOST: langfuse-clickhouse
+      REDIS_HOST: redis
+    secrets:
+      - postgres_password
+      - redis_password
+      - langfuse_encryption_key
+      - langfuse_salt
+      - langfuse_clickhouse_password
+      - langfuse_minio_password
+    configs:
+      - source: load_secrets_sh
+        target: /etc/load-secrets.sh
+        mode: 0555
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: '0.5' }
+        reservations: { memory: 128M, cpus: '0.25' }
+    healthcheck:
+      test: ['CMD-SHELL', 'kill -0 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    environment:
+      NODE_OPTIONS: ${LANGFUSE_WEB_NODE_OPTIONS:---max-old-space-size=640}
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-https://lf.lojanochat.com.br}
+      TELEMETRY_ENABLED: ${LANGFUSE_TELEMETRY_ENABLED:-false}
+      AUTH_DISABLE_SIGNUP: ${LANGFUSE_AUTH_DISABLE_SIGNUP:-true}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: 'false'
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: ${LANGFUSE_CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_CLUSTER_ENABLED: 'false'
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_USER:-minio}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION:-us-east-1}
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_USER:-minio}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_REGION:-us-east-1}
+      SECRETS_DATABASE_NAME: langfuse
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_HOST: postgres
+      CLICKHOUSE_HOST: langfuse-clickhouse
+      REDIS_HOST: redis
+    secrets:
+      - postgres_password
+      - redis_password
+      - langfuse_encryption_key
+      - langfuse_nextauth_secret
+      - langfuse_salt
+      - langfuse_clickhouse_password
+      - langfuse_minio_password
+    configs:
+      - source: load_secrets_sh
+        target: /etc/load-secrets.sh
+        mode: 0555
+    expose:
+      - '3000'
+    networks:
+      - internal
+      - public
+    deploy:
+      resources:
+        limits: { memory: 1G, cpus: '0.5' }
+        reservations: { memory: 256M, cpus: '0.25' }
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:3000/api/public/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+networks:
+  internal:
+    driver: bridge
+    # Sem internal: true para API/worker poderem acessar internet (OpenAI, Meta, Shopify).
+  public:
+    name: your_app_agent_prod_public
+    driver: bridge
+    # Rede para serviços que precisam ser alcançados pelo reverse proxy no host (80/443).
+
+volumes:
+  your_app_agent_prod_postgres_data:
+    name: your_app_agent_prod_postgres_data
+  your_app_agent_prod_redis_data:
+    name: your_app_agent_prod_redis_data
+  your_app_agent_prod_tempo_data:
+    name: your_app_agent_prod_tempo_data
+  your_app_agent_prod_loki_data:
+    name: your_app_agent_prod_loki_data
+  your_app_agent_prod_grafana_data:
+    name: your_app_agent_prod_grafana_data
+  your_app_agent_prod_pgadmin_data:
+    name: your_app_agent_prod_pgadmin_data
+  your_app_agent_prod_redisinsight_data:
+    name: your_app_agent_prod_redisinsight_data
+  your_app_agent_prod_langfuse_clickhouse_data:
+    name: your_app_agent_prod_langfuse_clickhouse_data
+  your_app_agent_prod_langfuse_clickhouse_logs:
+    name: your_app_agent_prod_langfuse_clickhouse_logs
+  your_app_agent_prod_langfuse_minio_data:
+    name: your_app_agent_prod_langfuse_minio_data
+
+# -----------------------------------------------------------------------------
+# Configs (mounted into third-party containers for secret loading)
+# -----------------------------------------------------------------------------
+
+configs:
+  load_secrets_sh:
+    file: ./scripts/load-secrets.sh
+
+# -----------------------------------------------------------------------------
+# Secrets (file-based — see deploy/secrets/README.md)
+# -----------------------------------------------------------------------------
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  redis_password:
+    file: ./secrets/redis_password
+  meta_app_secret:
+    file: ./secrets/meta_app_secret
+  meta_access_token:
+    file: ./secrets/meta_access_token
+  meta_verify_token:
+    file: ./secrets/meta_verify_token
+  meta_token_encryption_key:
+    file: ./secrets/meta_token_encryption_key
+  shopify_api_secret:
+    file: ./secrets/shopify_api_secret
+  openai_api_key:
+    file: ./secrets/openai_api_key
+  stripe_secret_key:
+    file: ./secrets/stripe_secret_key
+  stripe_webhook_secret:
+    file: ./secrets/stripe_webhook_secret
+  langfuse_encryption_key:
+    file: ./secrets/langfuse_encryption_key
+  langfuse_nextauth_secret:
+    file: ./secrets/langfuse_nextauth_secret
+  langfuse_salt:
+    file: ./secrets/langfuse_salt
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password
+  pgadmin_default_password:
+    file: ./secrets/pgadmin_default_password
+  langfuse_clickhouse_password:
+    file: ./secrets/langfuse_clickhouse_password
+  langfuse_minio_password:
+    file: ./secrets/langfuse_minio_password
+  smtp_pass:
+    file: ./secrets/smtp_pass

@@ -1,0 +1,944 @@
+# deploy/stack.yml — Docker Swarm-compatible production stack
+#
+# Usage:
+#   docker stack deploy -c deploy/stack.yml app
+#
+# Requires env vars from deploy/.env (source or --env-file).
+#
+# Mail services (mailserver, webmail) live in a separate stack — see #211.
+# Nginx reverse proxy is managed on the host — see deploy/nginx/.
+
+# Non-secret Langfuse config shared by langfuse-web and langfuse-worker.
+# Secrets (DATABASE_URL, SALT, ENCRYPTION_KEY, CLICKHOUSE_PASSWORD, REDIS_CONNECTION_STRING,
+# S3 secret keys) are injected by load-secrets.sh at container start via Docker secrets.
+x-langfuse-env: &langfuse_env
+  NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-https://lf.lojanochat.com.br}
+  TELEMETRY_ENABLED: ${LANGFUSE_TELEMETRY_ENABLED:-false}
+  AUTH_DISABLE_SIGNUP: ${LANGFUSE_AUTH_DISABLE_SIGNUP:-true}
+  LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+  LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
+  LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
+  LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
+  LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+  LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
+  LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+  LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: 'false'
+  CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://langfuse-clickhouse:8123}
+  CLICKHOUSE_USER: ${LANGFUSE_CLICKHOUSE_USER:-clickhouse}
+  CLICKHOUSE_CLUSTER_ENABLED: 'false'
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_USER:-minio}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_MINIO_ENDPOINT:-http://langfuse-minio:9000}
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION:-us-east-1}
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_USER:-minio}
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_MINIO_ENDPOINT:-http://langfuse-minio:9000}
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_REGION:-us-east-1}
+  SECRETS_DATABASE_NAME: langfuse
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_HOST: ${POSTGRES_HOST:-app_postgres}
+  CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-langfuse-clickhouse}
+  REDIS_HOST: ${REDIS_HOST:-app_redis}
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application
+  # ---------------------------------------------------------------------------
+
+  api:
+    image: ${API_IMAGE}:${API_IMAGE_TAG}
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    configs:
+      - source: load_secrets_sh_v2
+        target: /etc/load-secrets.sh
+        mode: 0555
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      # Canary-assisted rollout (#224): one task at a time, new task starts before
+      # old one stops, 120s healthcheck window per task, any failure triggers
+      # automatic rollback. This is NOT true canary (traffic splitting) — it is
+      # "start-first + monitor" which covers ~80 % of zero-downtime scenarios.
+      update_config: &app_update_config
+        parallelism: 1            # one task at a time (canary-assisted)
+        order: start-first        # new task starts before old one stops
+        delay: 30s                # pause between batches for metric observation
+        monitor: 30s              # healthcheck window — reduced from 120s; canary script validates convergence
+        max_failure_ratio: 0.0    # any failure triggers rollback
+        failure_action: rollback
+      rollback_config: &app_rollback_config
+        parallelism: 1
+        order: start-first        # zero-downtime rollback — new (old) task starts before failing one stops
+        delay: 10s
+        monitor: 30s              # reduced from 60s — aligned with update_config
+        failure_action: pause     # if rollback itself fails → manual intervention
+      resources:
+          limits: { memory: 512M, cpus: '0.5' }
+          reservations: { memory: 256M, cpus: '0.25' }
+    env_file:
+      - .env
+    environment:
+      SHOPIFY_BILLING_CURRENCY_CODE: ${SHOPIFY_BILLING_CURRENCY_CODE:-USD}
+      LANGFUSE_PROMPT_SYNC_ON_BOOT: ${LANGFUSE_PROMPT_SYNC_ON_BOOT:-true}
+      LANGFUSE_PROMPT_SYNC_FAIL_ON_ERROR: ${LANGFUSE_PROMPT_SYNC_FAIL_ON_ERROR:-false}
+      LANGFUSE_INTERNAL_BASE_URL: ${LANGFUSE_INTERNAL_BASE_URL:-http://langfuse-web:3000}
+      POSTGRES_HOST: ${POSTGRES_HOST:-app_postgres}
+      REDIS_HOST: ${REDIS_HOST:-app_redis}
+    command:
+      - node
+      - --experimental-specifier-resolution=node
+      - dist/apps/api/src/main.js
+    secrets:
+      - postgres_password
+      - redis_password
+      - meta_app_secret
+      - meta_access_token
+      - meta_verify_token
+      - meta_token_encryption_key
+      - shopify_api_secret
+      - openai_api_key
+      - stripe_secret_key
+      - stripe_webhook_secret
+      - smtp_pass
+    networks:
+      - internal
+      - public
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://127.0.0.1:' + (process.env.API_PORT || 3001) + '/health/ready', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1));"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging: &default_logging
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  worker:
+    image: ${API_IMAGE}:${API_IMAGE_TAG}
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    configs:
+      - source: load_secrets_sh_v2
+        target: /etc/load-secrets.sh
+        mode: 0555
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *app_update_config
+      rollback_config: *app_rollback_config
+      resources:
+          limits: { memory: 512M, cpus: '0.5' }
+          reservations: { memory: 256M, cpus: '0.25' }
+    env_file:
+      - .env
+    environment:
+      LANGFUSE_PROMPT_SYNC_ON_BOOT: 'false'
+      POSTGRES_HOST: ${POSTGRES_HOST:-app_postgres}
+      REDIS_HOST: ${REDIS_HOST:-app_redis}
+      WORKER_CONCURRENCY: '${WORKER_CONCURRENCY:-5}'
+    command: ['sh', '-c', '${API_WORKER_COMMAND}']
+    secrets:
+      - postgres_password
+      - redis_password
+      - meta_app_secret
+      - meta_access_token
+      - meta_verify_token
+      - meta_token_encryption_key
+      - shopify_api_secret
+      - openai_api_key
+      - stripe_secret_key
+      - stripe_webhook_secret
+      - smtp_pass
+    networks:
+      - internal
+    healthcheck:
+      test: ['CMD-SHELL', 'kill -0 1']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *default_logging
+
+  api-migrate:
+    # One-shot migration — no healthcheck needed (runs once, exits; restart_policy.condition: none).
+    # Details in #206.
+    image: ${API_IMAGE}:${API_IMAGE_TAG}
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    configs:
+      - source: load_secrets_sh_v2
+        target: /etc/load-secrets.sh
+        mode: 0555
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
+      resources:
+        limits: { memory: 256M, cpus: '0.25' }
+        reservations: { memory: 128M, cpus: '0.1' }
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-app_postgres}
+    secrets:
+      - postgres_password
+    command:
+      - sh
+      - -lc
+      - node /app/node_modules/prisma/build/index.js migrate deploy --config /app/packages/db/prisma.config.ts
+    networks:
+      - internal
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Data stores
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    image: ${PGVECTOR_IMAGE:-pgvector/pgvector:pg18-trixie}
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      # Stateful services MUST use stop-first (#224): running two instances of
+      # postgres/redis/clickhouse/minio concurrently on the same volume risks
+      # data corruption. Unlike stateless services (api, worker, nginx) which
+      # use start-first for zero-downtime, stateful services accept brief
+      # downtime to preserve data integrity.
+      update_config: &stateful_update_config
+        parallelism: 1
+        delay: 10s
+        monitor: 60s
+        max_failure_ratio: 0.0
+        failure_action: rollback
+        order: stop-first         # stateful — never run two instances
+      rollback_config: &stateful_rollback_config
+        parallelism: 1
+        delay: 10s
+        monitor: 60s
+        failure_action: pause
+        order: stop-first
+      placement:
+        constraints:
+          - node.role == manager # bind mount: ops/postgres-init
+      resources:
+          limits: { memory: 1G, cpus: '1' }
+          reservations: { memory: 512M, cpus: '0.25' }
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - your_app_agent_prod_postgres_data:/var/lib/postgresql
+      - ../ops/postgres-init:/docker-entrypoint-initdb.d:ro
+      # shm_size equivalent for Swarm (256 MB)
+      - type: tmpfs
+        target: /dev/shm
+        tmpfs:
+          size: 268435456
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - internal
+    logging: *default_logging
+
+  redis:
+    image: redis:8.6.0-alpine
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *stateful_update_config
+      rollback_config: *stateful_rollback_config
+      resources:
+          limits: { memory: 512M, cpus: '0.5' }
+          reservations: { memory: 128M, cpus: '0.1' }
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        export REDIS_PASSWORD="$$(cat /run/secrets/redis_password)" &&
+        exec redis-server --appendonly yes
+        --requirepass "$$REDIS_PASSWORD"
+        --maxmemory 400mb --maxmemory-policy noeviction
+    secrets:
+      - redis_password
+    volumes:
+      - your_app_agent_prod_redis_data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$(cat /run/secrets/redis_password)" ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - internal
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Observability — Metrics & Alerting (#221)
+  # ---------------------------------------------------------------------------
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    deploy:
+      mode: global
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      resources:
+        limits: { memory: 128M, cpus: '0.25' }
+        reservations: { memory: 32M, cpus: '0.05' }
+    command:
+      - '--path.rootfs=/host'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /:/host:ro,rslave
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:9100/metrics || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - internal
+    logging: *default_logging
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    deploy:
+      mode: global
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      resources:
+        limits: { memory: 256M, cpus: '0.25' }
+        reservations: { memory: 64M, cpus: '0.1' }
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/healthz || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - internal
+    logging: *default_logging
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *stateful_update_config
+      rollback_config: *stateful_rollback_config
+      placement:
+        constraints:
+          - node.role == manager # bind mount: ops/prometheus.yml, ops/prometheus/
+      resources:
+        limits: { memory: 2G, cpus: '0.5' }
+        reservations: { memory: 256M, cpus: '0.25' }
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - your_app_agent_prod_prometheus_data:/prometheus
+      - ../ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../ops/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:9090/-/healthy || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - internal
+    logging: *default_logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *stateful_update_config
+      rollback_config: *stateful_rollback_config
+      placement:
+        constraints:
+          - node.role == manager # bind mount: ops/alertmanager.yml
+      resources:
+        limits: { memory: 128M, cpus: '0.25' }
+        reservations: { memory: 32M, cpus: '0.05' }
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--config.expand-env'
+    volumes:
+      - your_app_agent_prod_alertmanager_data:/alertmanager
+      - ../ops/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:9093/-/healthy || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Observability — Traces & Logs
+  # ---------------------------------------------------------------------------
+
+  tempo:
+    image: grafana/tempo:2.10.1
+    deploy:
+      replicas: 0  # Disabled — traces non-essential. Enable: docker service scale app_tempo=1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *stateful_update_config
+      rollback_config: *stateful_rollback_config
+      placement:
+        constraints:
+          - node.role == manager # bind mount: ops/tempo.yaml
+      resources:
+        limits: { memory: 512M, cpus: '0.5' }
+        reservations: { memory: 128M, cpus: '0.25' }
+    command: ['-config.file=/etc/tempo.yaml']
+    volumes:
+      - your_app_agent_prod_tempo_data:/var/tempo
+      - ../ops/tempo.yaml:/etc/tempo.yaml:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:3200/ready || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - internal
+    logging: *default_logging
+
+  loki:
+    image: grafana/loki:3.6.6
+    deploy:
+      replicas: 0  # Disabled — use docker service logs instead. Enable: docker service scale app_loki=1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *stateful_update_config
+      rollback_config: *stateful_rollback_config
+      resources:
+        limits: { memory: 1G, cpus: '1' }
+        reservations: { memory: 256M, cpus: '0.25' }
+    command: ['-config.file=/etc/loki/loki.yaml']
+    volumes:
+      - your_app_agent_prod_loki_data:/loki
+      - ../ops/loki.yaml:/etc/loki/loki.yaml:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:3100/ready || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+    logging: *default_logging
+
+  promtail:
+    image: grafana/promtail:3.6.6
+    deploy:
+      replicas: 0  # Disabled — depends on loki. Enable: docker service scale app_promtail=1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *stateful_update_config
+      rollback_config: *stateful_rollback_config
+      placement:
+        constraints:
+          - node.role == manager # bind mounts: docker.sock, containers
+      resources:
+        limits: { memory: 256M, cpus: '0.25' }
+        reservations: { memory: 64M, cpus: '0.1' }
+    volumes:
+      - ../ops/promtail.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: ['-config.file=/etc/promtail/config.yaml']
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:9080/ready || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+    logging: *default_logging
+
+  grafana:
+    image: grafana/grafana:12.3.3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *app_update_config
+      rollback_config: *app_rollback_config
+      placement:
+        constraints:
+          - node.role == manager # bind mount: ops/grafana/provisioning
+      resources:
+        limits: { memory: 512M, cpus: '0.5' }
+        reservations: { memory: 128M, cpus: '0.25' }
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_SERVER_DOMAIN: ${GRAFANA_DOMAIN}
+      GF_SERVER_ROOT_URL: https://${GRAFANA_DOMAIN}
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - your_app_agent_prod_grafana_data:/var/lib/grafana
+      - ../ops/grafana/provisioning:/etc/grafana/provisioning:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+      - public
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Admin / dev tools
+  # ---------------------------------------------------------------------------
+
+  pgadmin:
+    image: dpage/pgadmin4:9.12
+    deploy:
+      replicas: 0  # Disabled by default — start on-demand: docker service scale app_pgadmin=1
+      update_config: *app_update_config
+      rollback_config: *app_rollback_config
+      resources:
+        limits: { memory: 512M, cpus: '0.5' }
+        reservations: { memory: 128M, cpus: '0.25' }
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_default_password
+      PGADMIN_LISTEN_PORT: 80
+    secrets:
+      - pgadmin_default_password
+    volumes:
+      - your_app_agent_prod_pgadmin_data:/var/lib/pgadmin
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://127.0.0.1:80/misc/ping || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+      - public
+    logging: *default_logging
+
+  redisinsight:
+    image: redis/redisinsight:3.0
+    deploy:
+      replicas: 0  # Disabled by default — start on-demand: docker service scale app_redisinsight=1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *app_update_config
+      rollback_config: *app_rollback_config
+      resources:
+        limits: { memory: 256M, cpus: '0.25' }
+        reservations: { memory: 64M, cpus: '0.1' }
+    volumes:
+      - your_app_agent_prod_redisinsight_data:/data
+    # Node.js-based image — use node for healthcheck
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://127.0.0.1:5540/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - internal
+      - public
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Langfuse (LLM observability)
+  # ---------------------------------------------------------------------------
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:26.1-alpine
+    user: '101:101'
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *stateful_update_config
+      rollback_config: *stateful_rollback_config
+      resources:
+        # 1G was insufficient for ClickHouse migrations (error 241 memory limit exceeded). Minimum recommended 2G.
+        limits: { memory: 2G, cpus: '1' }
+        reservations: { memory: 128M, cpus: '0.1' }
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    command:
+      - /entrypoint.sh
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${LANGFUSE_CLICKHOUSE_USER:-clickhouse}
+    secrets:
+      - langfuse_clickhouse_password
+    configs:
+      - source: load_secrets_sh_v2
+        target: /etc/load-secrets.sh
+        mode: 0555
+    volumes:
+      - your_app_agent_prod_langfuse_clickhouse_data:/var/lib/clickhouse
+      - your_app_agent_prod_langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:8123/ping || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - internal
+    logging: *default_logging
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio:latest
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *stateful_update_config
+      rollback_config: *stateful_rollback_config
+      resources:
+        limits: { memory: 256M, cpus: '0.25' }
+        reservations: { memory: 64M, cpus: '0.1' }
+    entrypoint:
+      - sh
+      - -c
+      - '. /etc/load-secrets.sh && mkdir -p /data/langfuse && exec /usr/bin/minio server --address :9000 --console-address :9001 /data'
+    environment:
+      MINIO_ROOT_USER: ${LANGFUSE_MINIO_USER:-minio}
+    secrets:
+      - source: langfuse_minio_password
+        target: langfuse_minio_password
+        uid: '65532'
+        gid: '65532'
+        mode: 0400
+    configs:
+      - source: load_secrets_sh_v2
+        target: /etc/load-secrets.sh
+        mode: 0555
+    volumes:
+      - your_app_agent_prod_langfuse_minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+    logging: *default_logging
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *app_update_config
+      rollback_config: *app_rollback_config
+      resources:
+          limits: { memory: 512M, cpus: '0.5' }
+          reservations: { memory: 128M, cpus: '0.1' }
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    command:
+      - dumb-init
+      - --
+      - ./worker/entrypoint.sh
+      - node
+      - worker/dist/index.js
+    environment:
+      <<: *langfuse_env
+      NODE_OPTIONS: ${LANGFUSE_WORKER_NODE_OPTIONS:---max-old-space-size=384}
+    secrets:
+      - source: postgres_password
+        target: postgres_password
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: redis_password
+        target: redis_password
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_encryption_key
+        target: langfuse_encryption_key
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_salt
+        target: langfuse_salt
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_clickhouse_password
+        target: langfuse_clickhouse_password
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_minio_password
+        target: langfuse_minio_password
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+    configs:
+      - source: load_secrets_sh_v2
+        target: /etc/load-secrets.sh
+        mode: 0555
+    # No HTTP port exposed — healthcheck via process signal
+    healthcheck:
+      test: ['CMD-SHELL', 'kill -0 1']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+    logging: *default_logging
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        window: 120s
+      update_config: *app_update_config
+      rollback_config: *app_rollback_config
+      resources:
+        limits: { memory: 1G, cpus: '0.5' }
+        reservations: { memory: 256M, cpus: '0.25' }
+    entrypoint: ['sh', '-c', '. /etc/load-secrets.sh && exec "$$@"', '--']
+    command:
+      - dumb-init
+      - --
+      - ./web/entrypoint.sh
+      - /bin/sh
+      - -c
+      - if [ -n "$$NEXT_PUBLIC_LANGFUSE_CLOUD_REGION" ]; then node --import dd-trace/initialize.mjs ./web/server.js --keepAliveTimeout 110000; else node ./web/server.js --keepAliveTimeout 110000; fi
+    environment:
+      <<: *langfuse_env
+      NODE_OPTIONS: ${LANGFUSE_WEB_NODE_OPTIONS:---max-old-space-size=640}
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    secrets:
+      - source: postgres_password
+        target: postgres_password
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: redis_password
+        target: redis_password
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_encryption_key
+        target: langfuse_encryption_key
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_nextauth_secret
+        target: langfuse_nextauth_secret
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_salt
+        target: langfuse_salt
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_clickhouse_password
+        target: langfuse_clickhouse_password
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+      - source: langfuse_minio_password
+        target: langfuse_minio_password
+        uid: '1001'
+        gid: '65533'
+        mode: 0400
+    configs:
+      - source: load_secrets_sh_v2
+        target: /etc/load-secrets.sh
+        mode: 0555
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/public/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - internal
+      - public
+    logging: *default_logging
+
+# -----------------------------------------------------------------------------
+# Networks
+# -----------------------------------------------------------------------------
+
+networks:
+  internal:
+    driver: overlay
+    attachable: true
+    # No internal: true — API/worker need internet access (OpenAI, Meta, Shopify)
+  public:
+    driver: overlay
+    attachable: true
+    name: your_app_agent_prod_public
+    # Reachable by host reverse proxy (nginx on host for 80/443)
+
+# -----------------------------------------------------------------------------
+# Volumes
+# -----------------------------------------------------------------------------
+
+volumes:
+  your_app_agent_prod_postgres_data:
+    name: your_app_agent_prod_postgres_data
+  your_app_agent_prod_redis_data:
+    name: your_app_agent_prod_redis_data
+  your_app_agent_prod_tempo_data:
+    name: your_app_agent_prod_tempo_data
+  your_app_agent_prod_loki_data:
+    name: your_app_agent_prod_loki_data
+  your_app_agent_prod_grafana_data:
+    name: your_app_agent_prod_grafana_data
+  your_app_agent_prod_prometheus_data:
+    name: your_app_agent_prod_prometheus_data
+  your_app_agent_prod_alertmanager_data:
+    name: your_app_agent_prod_alertmanager_data
+  your_app_agent_prod_pgadmin_data:
+    name: your_app_agent_prod_pgadmin_data
+  your_app_agent_prod_redisinsight_data:
+    name: your_app_agent_prod_redisinsight_data
+  your_app_agent_prod_langfuse_clickhouse_data:
+    name: your_app_agent_prod_langfuse_clickhouse_data
+  your_app_agent_prod_langfuse_clickhouse_logs:
+    name: your_app_agent_prod_langfuse_clickhouse_logs
+  your_app_agent_prod_langfuse_minio_data:
+    name: your_app_agent_prod_langfuse_minio_data
+
+# -----------------------------------------------------------------------------
+# Configs (mounted into third-party containers for secret loading)
+# -----------------------------------------------------------------------------
+
+configs:
+  load_secrets_sh_v2:
+    file: ./scripts/load-secrets.sh
+
+# -----------------------------------------------------------------------------
+# Secrets (Docker Swarm external secrets — created by bootstrap.sh)
+# -----------------------------------------------------------------------------
+
+secrets:
+  postgres_password:
+    external: true
+  redis_password:
+    external: true
+  meta_app_secret:
+    external: true
+  meta_access_token:
+    external: true
+  meta_verify_token:
+    external: true
+  meta_token_encryption_key:
+    external: true
+  shopify_api_secret:
+    external: true
+  openai_api_key:
+    external: true
+  stripe_secret_key:
+    external: true
+  stripe_webhook_secret:
+    external: true
+  langfuse_encryption_key:
+    external: true
+  langfuse_nextauth_secret:
+    external: true
+  langfuse_salt:
+    external: true
+  grafana_admin_password:
+    external: true
+  pgadmin_default_password:
+    external: true
+  langfuse_clickhouse_password:
+    external: true
+  langfuse_minio_password:
+    external: true
+  smtp_pass:
+    external: true

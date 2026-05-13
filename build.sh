@@ -204,6 +204,30 @@ build_package "free" "gitlab"
 build_package "pro" "github"
 build_package "pro" "gitlab"
 
+# ── Build add-on packages ───────────────────────────────────────────────────
+build_addon() {
+  local ADDON="$1"
+  local PKG_NAME="agentkit-addon-${ADDON}"
+  local PKG_DIR="$DIST/$PKG_NAME"
+
+  echo "━━━ Building add-on: $PKG_NAME ━━━"
+
+  rm -rf "$PKG_DIR"
+  cp -r "$SRC/addons/$ADDON" "$PKG_DIR"
+  chmod +x "$PKG_DIR/scripts/"*.sh 2>/dev/null || true
+  chmod +x "$PKG_DIR/scripts/lib/"*.sh 2>/dev/null || true
+
+  (cd "$DIST" && zip -qr "${PKG_NAME}.zip" "$PKG_NAME")
+  local ZIP_SIZE
+  ZIP_SIZE=$(du -sh "$DIST/${PKG_NAME}.zip" | awk '{print $1}')
+  echo "  ✓ $PKG_NAME → ${ZIP_SIZE}"
+  echo ""
+}
+
+# Build add-ons if they exist
+[[ -d "$SRC/addons/ci-cd" ]] && build_addon "ci-cd"
+[[ -d "$SRC/addons/deploy" ]] && build_addon "deploy"
+
 echo "━━━ Build Summary ━━━"
 ls -lh "$DIST/"*.zip
 echo ""

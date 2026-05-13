@@ -1,0 +1,112 @@
+# CD Backend — Docker Build + Push to GHCR
+# Triggered by git tags (v*) or manual dispatch
+# Multi-arch support (arm64 native + amd64)
+
+name: CD Backend
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional release tag (e.g., v0.1.3)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+# Queue deploys — never cancel in-progress deploy
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      owner_lc: ${{ steps.vars.outputs.owner_lc }}
+      build_sha: ${{ steps.vars.outputs.build_sha }}
+      build_ref: ${{ steps.vars.outputs.build_ref }}
+      sha_tag: ${{ steps.vars.outputs.sha_tag }}
+      release_tag: ${{ steps.vars.outputs.release_tag }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+    steps:
+      - name: Resolve build variables
+        id: vars
+        run: |
+          OWNER_LC="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          BUILD_SHA="${{ github.sha }}"
+          RELEASE_TAG=""
+          if [ "${{ github.event_name }}" = "push" ] && [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          elif [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+          fi
+          BUILD_REF="${BUILD_SHA}"
+          [[ -n "${RELEASE_TAG}" ]] && BUILD_REF="${RELEASE_TAG}"
+          SHA_TAG="sha-$(printf '%s' "${BUILD_SHA}" | cut -c1-7)"
+          echo "owner_lc=${OWNER_LC}" >> "$GITHUB_OUTPUT"
+          echo "build_sha=${BUILD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "build_ref=${BUILD_REF}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.vars.outputs.build_ref }}
+
+      - name: Resolve image version
+        id: version
+        run: |
+          IMAGE_TAG="$(grep -o '"version": *"[^"]*"' package.json | head -1 | grep -o '"[^"]*"$' | tr -d '"')"
+          if [[ ! "${IMAGE_TAG}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version: ${IMAGE_TAG}"
+            exit 1
+          fi
+          RELEASE_TAG="${{ steps.vars.outputs.release_tag }}"
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            TAG_VERSION="${RELEASE_TAG#v}"
+            if [[ "${TAG_VERSION}" != "${IMAGE_TAG}" ]]; then
+              echo "::error::Tag (${RELEASE_TAG}) != package.json (${IMAGE_TAG})"
+              exit 1
+            fi
+          fi
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.build_ref }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          # Update the Dockerfile path for your project:
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ needs.prepare.outputs.owner_lc }}/${{ github.event.repository.name }}:${{ needs.prepare.outputs.image_tag }}
+            ghcr.io/${{ needs.prepare.outputs.owner_lc }}/${{ github.event.repository.name }}:${{ needs.prepare.outputs.sha_tag }}
+            ghcr.io/${{ needs.prepare.outputs.owner_lc }}/${{ github.event.repository.name }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.build_sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.image_tag }}

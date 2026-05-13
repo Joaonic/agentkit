@@ -1,0 +1,169 @@
+# deploy/stack-multinode.yml — Docker Compose override for multi-node Swarm
+#
+# Usage (layered on top of base stack):
+#   docker stack deploy -c deploy/stack.yml -c deploy/stack-multinode.yml --with-registry-auth app
+#
+# This override:
+#   1. Adds placement preferences to spread stateless services across workers.
+#   2. Constrains stateless services to worker nodes.
+#   3. Keeps observability/admin on manager nodes.
+#   4. Increases replicas for api/worker (multi-node capacity).
+#   5. Removes postgres/redis services (now managed externally — ADR-013).
+#   6. Enables encrypted overlay networks.
+#
+# Issues: #217, #219 | ADR: ADR-013
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application — spread across workers
+  # ---------------------------------------------------------------------------
+
+  api:
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+        preferences:
+          - spread: node.hostname
+
+  worker:
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+        preferences:
+          - spread: node.hostname
+
+  api-migrate:
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+
+  # ---------------------------------------------------------------------------
+  # Data stores — REMOVED (managed externally per ADR-013)
+  # Set replicas to 0 to disable; services stay in compose for reference.
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    deploy:
+      replicas: 0
+
+  redis:
+    deploy:
+      replicas: 0
+
+  # ---------------------------------------------------------------------------
+  # Observability — pinned to managers
+  # ---------------------------------------------------------------------------
+
+  node-exporter:
+    deploy:
+      mode: global
+
+  cadvisor:
+    deploy:
+      mode: global
+
+  prometheus:
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.tier == obs
+
+  alertmanager:
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+
+  tempo:
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+
+  loki:
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+
+  grafana:
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+
+  # ---------------------------------------------------------------------------
+  # Admin UIs — pinned to managers
+  # ---------------------------------------------------------------------------
+
+  pgadmin:
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+
+  redisinsight:
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+
+  # ---------------------------------------------------------------------------
+  # Langfuse — workers (stateless with external DB)
+  # ---------------------------------------------------------------------------
+
+  langfuse-web:
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+        preferences:
+          - spread: node.hostname
+
+  langfuse-worker:
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+        preferences:
+          - spread: node.hostname
+
+  # ---------------------------------------------------------------------------
+  # Langfuse infra — ClickHouse pinned, MinIO removed (using DO Spaces)
+  # ---------------------------------------------------------------------------
+
+  langfuse-clickhouse:
+    deploy:
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.tier == app
+
+  langfuse-minio:
+    deploy:
+      replicas: 0
+
+# ---------------------------------------------------------------------------
+# Networks — encrypted for multi-node inter-node traffic
+# ---------------------------------------------------------------------------
+
+networks:
+  internal:
+    driver: overlay
+    attachable: true
+    driver_opts:
+      encrypted: "true"
+  public:
+    driver: overlay
+    attachable: true
+    name: your_app_agent_prod_public
+    driver_opts:
+      encrypted: "true"

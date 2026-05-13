@@ -1,0 +1,148 @@
+# Release — Automated Changelog + Version Bump + Tag
+# Triggers after successful CI on main, or manually with version bump type
+# Requires OPENAI_API_KEY secret for AI-powered changelog generation
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      update_type:
+        description: 'Version bump type (patch | minor | major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      skip_docs: ${{ steps.docs.outputs.skip_docs }}
+    steps:
+      - uses: actions/checkout@v5
+        if: github.event_name == 'workflow_run'
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - id: docs
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_run" ]; then
+            echo "skip_docs=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          MSG=$(git log --format=%B -n 1 HEAD | head -1)
+          if [[ "$MSG" =~ ^docs?: ]]; then
+            echo "skip_docs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_docs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    name: Changelog + version bump + tag
+    needs: gate
+    if: ${{ needs.gate.outputs.skip_docs != 'true' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve target ref
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "branch=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ steps.target.outputs.sha }}
+
+      - name: Checkout target branch
+        run: git checkout -B "${{ steps.target.outputs.branch }}" "${{ steps.target.outputs.sha }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Git config
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute next version
+        id: version
+        run: |
+          UPDATE_TYPE="${{ github.event.inputs.update_type || 'patch' }}"
+          NEXT_VERSION=$(node -e "
+            const p = require('./package.json');
+            const [major, minor, patch] = p.version.split('.').map(Number);
+            const type = '$UPDATE_TYPE';
+            let next;
+            if (type === 'major') next = (major + 1) + '.0.0';
+            else if (type === 'minor') next = major + '.' + (minor + 1) + '.0';
+            else next = major + '.' + minor + '.' + (patch + 1);
+            process.stdout.write(next);
+          ")
+          echo "update_type=$UPDATE_TYPE" >> "$GITHUB_OUTPUT"
+          echo "next_version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          chmod +x scripts/pipeline/*.sh
+          SCRIPTS_DIR=scripts/pipeline ./scripts/pipeline/generate_changelog.sh "${OPENAI_API_KEY:-skip}" "${{ steps.version.outputs.next_version }}"
+
+      - name: Version bump (package.json)
+        run: npm version "${{ steps.version.outputs.next_version }}" --no-git-tag-version
+
+      # For Maven projects, uncomment:
+      # - name: Version bump (pom.xml)
+      #   run: |
+      #     source scripts/pipeline/java/maven_helpers.sh
+      #     increment_version "${{ steps.version.outputs.update_type }}"
+
+      - name: Commit and push
+        run: |
+          git add CHANGELOG.md package.json
+          if git diff --staged --quiet; then
+            echo "::error::No changes to commit"
+            exit 1
+          fi
+          git commit -m "release: ${{ steps.version.outputs.next_version }} [skip ci]"
+          git push origin HEAD:${{ steps.target.outputs.branch }}
+
+      - name: Create and push tag
+        run: |
+          git tag -a "v${{ steps.version.outputs.next_version }}" -m "Release v${{ steps.version.outputs.next_version }}"
+          git push origin "v${{ steps.version.outputs.next_version }}"
+
+      # Optionally trigger CD workflow:
+      # - name: Trigger CD
+      #   run: |
+      #     curl -fsSL -X POST \
+      #       -H "Accept: application/vnd.github+json" \
+      #       -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+      #       "https://api.github.com/repos/${{ github.repository }}/actions/workflows/cd-backend.yml/dispatches" \
+      #       -d '{"ref":"${{ steps.target.outputs.branch }}","inputs":{"release_tag":"v${{ steps.version.outputs.next_version }}"}}'

@@ -1,0 +1,31 @@
+# deploy/autoscale.yml — Declarative autoscaling config for Docker Swarm.
+# Read by deploy/scripts/autoscale.sh.
+# Issue: #223 | Epic: #204
+#
+# Only stateless services listed here are eligible for scaling.
+# Stateful services (postgres, redis, langfuse-clickhouse, langfuse-minio,
+# langfuse-web, grafana, pgadmin, redisinsight, nginx) are blacklisted and
+# will cause a validation error if added.
+
+services:
+  api:
+    min_replicas: 1
+    max_replicas: 4
+    scale_up_cpu_pct: 75
+    scale_up_mem_pct: 80
+    scale_down_cpu_pct: 25
+    scale_down_mem_pct: 30
+    cooldown_up_seconds: 60
+    cooldown_down_seconds: 300
+    step: 1
+
+  worker:
+    min_replicas: 1
+    max_replicas: 6
+    scale_up_cpu_pct: 70
+    scale_up_mem_pct: 80
+    scale_down_cpu_pct: 20
+    scale_down_mem_pct: 30
+    cooldown_up_seconds: 90
+    cooldown_down_seconds: 600
+    step: 1

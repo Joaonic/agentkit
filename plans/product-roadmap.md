@@ -20,14 +20,16 @@ Transforma agentes genéricos em engenheiros disciplinados com TDD, quality gate
 
 | Tipo | Qtd | Descrição |
 |------|-----|-----------|
-| **Skills** | 58 | Workflows executáveis (planning, audit, TDD, backend, frontend, design patterns, infra workbenches) |
-| **Rules** | 33 | Regras alwaysApply + contextuais (hexagonal, tenant isolation, security, observability, clean code) |
+| **Skills** | 67 | Workflows executáveis (planning, audit, TDD, backend, frontend, design patterns, infra workbenches) |
+| **Rules** | 51 | Regras alwaysApply + contextuais (hexagonal, tenant isolation, security, observability, clean code) |
 | **Agents** | 11 | Personas especializadas (backend, frontend, arch, code-reviewer, verifier, ux-reviewer, etc.) |
-| **Pipeline Scripts** | 4 | Orquestração autônoma: implement → review → merge em paralelo via worktrees |
+| **Pipeline Scripts** | 8 | Orquestração autônoma: implement → review → merge em paralelo via worktrees (GitHub + GitLab) |
 | **Workflow** | 8 fases | Sistema completo de fases com 5 quality gates obrigatórios |
-| **Governance Docs** | 4 | Setup, MCP policy, workflow index, README |
+| **Governance Docs** | 13 | Setup, MCP policy, workflow index, README, getting-started, installation, FAQ, etc. |
 | **Design Patterns** | 22 | Catálogo GoF completo com exemplos e anti-patterns |
-| **Total** | **123+** | Ativos distintos |
+| **CI/CD Add-on** | 14 | GitLab CI templates (Java, Node, Bun) + GitHub Actions (CI, Release, CD) + pipeline scripts + language helpers |
+| **Deploy Add-on** | 23 | Docker Swarm deploy, rollback, backup/restore, healthcheck, smoke-test, security-review, templates |
+| **Total** | **200+** | Ativos distintos |
 
 ---
 
@@ -53,6 +55,9 @@ Transforma agentes genéricos em engenheiros disciplinados com TDD, quality gate
 8. **22 GoF design patterns** como skills executáveis
 9. **Database workbenches** (Postgres + Redis) com referências operacionais
 10. **Plan-to-issues pipeline** — planos viram issues agent-ready com QA package
+11. **CI/CD add-on pack** — trunk-based flow completo com AI changelog (OpenAI), version bump por stack (Java/Maven, Node, Bun), Docker multi-arch build, GitLab CI templates + GitHub Actions workflows
+12. **Deploy scripts pack** — Docker Swarm deploy, rollback, backup/restore PostgreSQL, healthcheck, smoke-test, security-review, autoscaling templates
+13. **Landing page design spec** — design system completo para marketing site (dark-mode-first, developer-centric)
 
 ---
 
@@ -267,10 +272,18 @@ agentkit-pro/                    # Distribuído via Lemon Squeezy / Gumroad
 
 | Tier | Preço | Conteúdo |
 |------|-------|----------|
-| **Free** | $0 | Core: 10 rules + 15 skills + 4 agents + basic pipeline |
-| **Pro** | $79 | Tudo: 33 rules + 58 skills + 11 agents + full pipeline + workflow docs |
+| **Free** | $0 | Core: 10 rules + 14 skills + 4 agents + basic pipeline |
+| **Pro** | $79 | Tudo: 51 rules + 67 skills + 11 agents + full pipeline + workflow docs + 22 design patterns |
 | **Team** | $199 | Pro + 1 ano updates + priority GitHub Issues support |
 | **Enterprise** | $499/yr | Team + consultoria 2h setup + SLA de updates |
+
+#### Add-ons (compra separada, funciona com qualquer tier)
+
+| Add-on | Preço | Conteúdo |
+|--------|-------|----------|
+| **CI/CD Pipeline Pack** | $29 | GitLab CI templates (Java, Node, Bun) + GitHub Actions (CI, Release, CD) + AI changelog + version bump scripts |
+| **Deploy Scripts Pack** | $29 | Docker Swarm deploy, rollback, backup/restore PostgreSQL, healthcheck, smoke-test, security-review, templates |
+| **CI/CD + Deploy Bundle** | $49 | Ambos os packs com desconto |
 
 ### 1.4 — Criar produto no Lemon Squeezy
 
@@ -303,7 +316,8 @@ agentkit-pro/                    # Distribuído via Lemon Squeezy / Gumroad
 > AgentKit is the governance framework that turns Cursor, Copilot, and any AI coding agent into a disciplined engineering team.
 
 **Subheadline:**
-> 58 skills. 33 rules. 11 agents. 4 pipeline scripts. 5 quality gates.
+> 67 skills. 51 rules. 11 agents. 8 pipeline scripts. 5 quality gates.
+> CI/CD add-on with AI changelogs. Deploy scripts with rollback & backup.
 > TDD-first. Review-mandatory. Zero-tolerance for deprecated APIs, broken tests, and scope creep.
 
 **Bullet points para plataformas de venda:**
@@ -342,8 +356,8 @@ that enforces engineering discipline on any AI coding agent.
 
 | What | Free | Pro |
 |------|------|-----|
-| Rules | 10 | 33 |
-| Skills | 15 | 58 |
+| Rules | 10 | 51 |
+| Skills | 14 | 67 |
 | Agents | 4 | 11 |
 | Pipeline | Basic | Full (parallel worktrees, waves, review modes) |
 | Design Patterns | — | 22 GoF |
@@ -351,6 +365,13 @@ that enforces engineering discipline on any AI coding agent.
 | Workflow Docs | — | 8-phase system |
 | Quality Gates | 2 | 5 |
 | Price | $0 | $79 |
+
+**Add-ons** (work with any tier):
+| Add-on | Price |
+|--------|-------|
+| CI/CD Pipeline Pack (GitLab CI + GitHub Actions + AI changelog) | $29 |
+| Deploy Scripts Pack (Swarm deploy, rollback, backup, healthcheck) | $29 |
+| CI/CD + Deploy Bundle | $49 |
 
 [**Get AgentKit Pro →**](https://your-lemonsqueezy-link.com)
 
@@ -382,7 +403,7 @@ curl -sL https://agentkit.dev/install | bash
 
 ## What's Inside
 
-### Skills (58)
+### Skills (67)
 Executable workflows that guide agents step-by-step:
 - **Planning**: new-plan, implement-plan, create-milestone, executing-plans-parallel
 - **Quality**: tdd-workflow, code-audit, posttask, e2e, qa-issue-spec
@@ -392,8 +413,7 @@ Executable workflows that guide agents step-by-step:
 - **Design Patterns**: All 22 GoF patterns
 - **Meta**: add-skill, bootstrap-governance, add-mcp
 
-### Rules (33)
-Always-on guardrails that prevent bad practices:
+### Rules (51) that prevent bad practices:
 - Investigation before implementation
 - TDD mandatory for behavior changes
 - Tenant isolation enforcement
@@ -435,7 +455,7 @@ git commit -m "feat: initial release — AI Engineering Governance Toolkit"
 git push origin main
 
 # Criar release
-gh release create v1.0.0 --title "AgentKit v1.0.0" --notes "Initial release — 10 rules, 15 skills, 4 agents, basic pipeline"
+gh release create v1.0.0 --title "AgentKit v1.0.0" --notes "Initial release — 10 rules, 14 skills, 4 agents, basic pipeline"
 ```
 
 ### 2.2 — Script de extração (sanitizar do monorepo)
@@ -944,3 +964,82 @@ presets:
 | Mês 6 | MRR | $10,000+ |
 | Mês 12 | MRR | $30,000+ |
 | Mês 12 | Enterprise customers | 3+ |
+
+---
+
+## Add-on Packs — Detalhe Técnico
+
+### CI/CD Pipeline Pack (`src/addons/ci-cd/`)
+
+Trunk-based CI/CD completo com:
+
+| Componente | Ficheiros | Descrição |
+|-----------|-----------|-----------|
+| **GitLab CI Templates** | `gitlab/templates/{java,node,bun}-service.gitlab-ci.yml` | Pipelines completos por stack com stages: lint, test, build, changelog, version, docker, deploy |
+| **GitHub Actions** | `github/workflows/{ci,release,cd-backend}.yml` | CI gate + release automation + Docker multi-arch build |
+| **Pipeline Scripts** | `{gitlab,github}/scripts/*.sh` | Git helpers, diff extraction, AI changelog, version tagging |
+| **AI Changelog** | `gpt_generator.py` + `generate-changelog.mjs` | OpenAI API (gpt-4o-mini) para gerar changelogs. Fallback: conventional commit parsing |
+| **Language Helpers** | `scripts/{java,node,bun}/` | Maven version via `mvn versions:set`, npm version, bun version |
+
+**Fluxo:** `push → CI (build+test+lint) → AI changelog → version bump → git tag → Docker build (arm64+amd64) → deploy`
+
+### Deploy Scripts Pack (`src/addons/deploy/`)
+
+Docker Swarm deployment completo com:
+
+| Script | Descrição |
+|--------|-----------|
+| `deploy.sh` | Deploy principal (Docker Swarm stack update) |
+| `rollback.sh` | Rollback para versão anterior com confirmação |
+| `bootstrap.sh` | Setup inicial de Swarm cluster |
+| `backup-postgres.sh` | Backup PostgreSQL com compressão e rotação |
+| `restore-postgres.sh` | Restore de backup com validação |
+| `healthcheck.sh` | Health check multi-service com retries |
+| `smoke-test.sh` | Smoke tests pós-deploy |
+| `security-review-check.sh` | Validação de segurança pré-deploy |
+| `validate-env.sh` | Verificação de variáveis de ambiente |
+| Templates | `docker-compose.yml`, `stack.yml`, `stack-multinode.yml`, `autoscale.yml` |
+
+---
+
+## Landing Page — Design Spec
+
+Design completo documentado em `docs/design/landing-page-spec.md`:
+
+- **Design system:** Dark-mode-first (#0d1117), developer-centric, Inter + JetBrains Mono
+- **12 seções:** Hero, Problem, How It Works, Skills Showcase, CI/CD Pipeline, Pricing (Free/Pro/Team + add-ons), Design Patterns, Supported Stacks, Social Proof, Final CTA, Footer
+- **Tech stack recomendado:** Astro + Tailwind CSS (static) → Vercel/Cloudflare Pages
+- **SEO:** meta tags, OG image, structured data
+- **Responsive:** 3 breakpoints (desktop, tablet, mobile)
+- **Animations:** scroll-reveal, typing effect, count-up, pipeline steps
+- **Internacionalização:** EN (/) + PT (/pt) com pricing em USD/BRL
+- **Domain:** `agentkit.dev` (a registrar)
+
+---
+
+## Status de Implementação (atualizado)
+
+| Item | Status | Notas |
+|------|--------|-------|
+| Repo GitHub público | ✅ | github.com/Joaonic/agentkit |
+| 67 skills sanitizados | ✅ | `src/core/skills/` |
+| 51 rules sanitizadas | ✅ | `src/core/rules/` |
+| 11 agents sanitizados | ✅ | `src/core/agents/` |
+| 13 governance docs | ✅ | `src/core/docs/governance/` |
+| 8 pipeline scripts (GH+GL) | ✅ | `src/github/scripts/` + `src/gitlab/scripts/` |
+| Manifests free/pro | ✅ | `manifests/` (6 files) |
+| build.sh (4 zips) | ✅ | Precisa update para add-ons |
+| install.sh | ✅ | Smart installer com VCS auto-detect |
+| README.md (EN) | ✅ | Landing page em inglês |
+| README.pt.md (PT) | ✅ | Landing page em português |
+| Docs EN (6 ficheiros) | ✅ | getting-started, installation, vcs-setup, pipeline-guide, creating-skills, faq |
+| CI/CD add-on pack | ✅ | `src/addons/ci-cd/` (14 ficheiros) |
+| Deploy add-on pack | ✅ | `src/addons/deploy/` (23 ficheiros) |
+| Landing page design spec | ✅ | `docs/design/landing-page-spec.md` |
+| Roadmap enriquecido | ✅ | Este ficheiro |
+| build.sh com add-ons | 🔲 | Precisa gerar zips de add-ons |
+| Lemon Squeezy setup | 🔲 | Criar produtos e checkout links |
+| Domínio agentkit.dev | 🔲 | Registrar |
+| Landing page implementation | 🔲 | Astro + Tailwind |
+| CLI npm package | 🔲 | Fase 3 |
+| SaaS platform | 🔲 | Fase 4 |
